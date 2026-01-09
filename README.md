@@ -19,7 +19,7 @@ The following tools must be installed and available in your PATH:
 go install github.com/pressly/goose/v3/cmd/goose@latest
 
 # dbml - Schema documentation generator (optional, for dbml command)
-go install github.com/tmwinc/dbml@latest
+go install github.com/lucasefe/dbml@latest
 ```
 
 ### System Requirements

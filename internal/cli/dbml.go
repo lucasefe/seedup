@@ -24,7 +24,7 @@ func newDBMLCmd() *cobra.Command {
 		Long: `Generate DBML (Database Markup Language) documentation from the database schema.
 
 Requires the 'dbml' CLI tool to be installed:
-  go install github.com/tmwinc/dbml@latest
+  go install github.com/lucasefe/dbml@latest
 
 Examples:
   seedup dbml                              # Output to stdout
