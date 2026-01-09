@@ -2,6 +2,7 @@ package check
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -116,7 +117,7 @@ func (c *Checker) formatError(newMigrations []string, dir string) error {
 			dir, timestamp, rest))
 	}
 
-	return fmt.Errorf(msg.String())
+	return errors.New(msg.String())
 }
 
 func slicesEqual(a, b []string) bool {

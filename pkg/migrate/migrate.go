@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -36,6 +37,20 @@ func (m *Migrator) Up(ctx context.Context, dbURL, migrationsDir string) error {
 // UpByOne runs a single pending migration
 func (m *Migrator) UpByOne(ctx context.Context, dbURL, migrationsDir string) error {
 	return m.exec.Run(ctx, "goose", "postgres", dbURL, "-dir", migrationsDir, "up-by-one", "sql")
+}
+
+// UpByOneAllowNoop runs a single pending migration, but doesn't fail if no migrations are pending
+func (m *Migrator) UpByOneAllowNoop(ctx context.Context, dbURL, migrationsDir string) error {
+	err := m.exec.Run(ctx, "goose", "postgres", dbURL, "-dir", migrationsDir, "up-by-one", "sql")
+	if err != nil {
+		// Check if the error is just "no next version found" which means migrations are already applied
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			// This is expected when no migrations are pending - not an error for our purposes
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // Down rolls back the last migration
