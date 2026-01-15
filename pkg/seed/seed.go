@@ -15,6 +15,6 @@ type Seeder struct {
 func New(exec executor.Executor) *Seeder {
 	return &Seeder{
 		exec:     exec,
-		migrator: migrate.New(exec),
+		migrator: migrate.New(),
 	}
 }

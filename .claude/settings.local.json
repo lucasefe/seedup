@@ -10,7 +10,13 @@
       "Bash(./seedup seed create:*)",
       "Bash(./seedup seed apply:*)",
       "Bash(DATABASE_URL=\"postgres://amity_user:amity_password@localhost/amity_development\" ./seedup db setup:*)",
-      "Bash(go test:*)"
+      "Bash(go test:*)",
+      "Bash(dbml:*)",
+      "Bash(DATABASE_URL='postgres://amity_user:amity_password@localhost/amity_development?sslmode=disable' ./seedup:*)",
+      "WebSearch",
+      "Bash(tree:*)",
+      "Bash(find:*)",
+      "Bash(go mod tidy:*)"
     ]
   }
 }

@@ -2,13 +2,17 @@ package migrate
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"io"
+	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
-	"github.com/tmwinc/seedup/pkg/executor"
+	_ "github.com/lib/pq"
+	"github.com/pressly/goose/v3"
 )
 
 // MigrationStatus represents the status of a single migration
@@ -21,31 +25,74 @@ type MigrationStatus struct {
 
 // Migrator handles database migrations using goose
 type Migrator struct {
-	exec executor.Executor
+	verbose bool
+	stdout  io.Writer
 }
 
-// New creates a new Migrator with the given executor
-func New(exec executor.Executor) *Migrator {
-	return &Migrator{exec: exec}
+// Option configures a Migrator
+type Option func(*Migrator)
+
+// WithVerbose enables verbose output
+func WithVerbose(v bool) Option {
+	return func(m *Migrator) {
+		m.verbose = v
+	}
+}
+
+// WithStdout sets the stdout writer
+func WithStdout(w io.Writer) Option {
+	return func(m *Migrator) {
+		m.stdout = w
+	}
+}
+
+// New creates a new Migrator with the given options
+func New(opts ...Option) *Migrator {
+	m := &Migrator{
+		stdout: os.Stdout,
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 // Up runs all pending migrations
 func (m *Migrator) Up(ctx context.Context, dbURL, migrationsDir string) error {
-	return m.exec.Run(ctx, "goose", "postgres", dbURL, "-dir", migrationsDir, "up", "sql")
+	db, err := m.openDB(dbURL)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	m.configureGoose()
+	return goose.UpContext(ctx, db, migrationsDir)
 }
 
 // UpByOne runs a single pending migration
 func (m *Migrator) UpByOne(ctx context.Context, dbURL, migrationsDir string) error {
-	return m.exec.Run(ctx, "goose", "postgres", dbURL, "-dir", migrationsDir, "up-by-one", "sql")
+	db, err := m.openDB(dbURL)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	m.configureGoose()
+	return goose.UpByOneContext(ctx, db, migrationsDir)
 }
 
 // UpByOneAllowNoop runs a single pending migration, but doesn't fail if no migrations are pending
 func (m *Migrator) UpByOneAllowNoop(ctx context.Context, dbURL, migrationsDir string) error {
-	err := m.exec.Run(ctx, "goose", "postgres", dbURL, "-dir", migrationsDir, "up-by-one", "sql")
+	db, err := m.openDB(dbURL)
 	if err != nil {
-		// Check if the error is just "no next version found" which means migrations are already applied
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			// This is expected when no migrations are pending - not an error for our purposes
+		return err
+	}
+	defer db.Close()
+
+	m.configureGoose()
+	err = goose.UpByOneContext(ctx, db, migrationsDir)
+	if err != nil {
+		if errors.Is(err, goose.ErrNoNextVersion) {
 			return nil
 		}
 		return err
@@ -55,12 +102,26 @@ func (m *Migrator) UpByOneAllowNoop(ctx context.Context, dbURL, migrationsDir st
 
 // Down rolls back the last migration
 func (m *Migrator) Down(ctx context.Context, dbURL, migrationsDir string) error {
-	return m.exec.Run(ctx, "goose", "postgres", dbURL, "-dir", migrationsDir, "down", "sql")
+	db, err := m.openDB(dbURL)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	m.configureGoose()
+	return goose.DownContext(ctx, db, migrationsDir)
 }
 
 // Status shows the status of all migrations
 func (m *Migrator) Status(ctx context.Context, dbURL, migrationsDir string) error {
-	return m.exec.Run(ctx, "goose", "postgres", dbURL, "-dir", migrationsDir, "status", "sql")
+	db, err := m.openDB(dbURL)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	m.configureGoose()
+	return goose.StatusContext(ctx, db, migrationsDir)
 }
 
 // Create creates a new migration file with the given name
@@ -89,4 +150,39 @@ func (m *Migrator) Create(migrationsDir, name string) (string, error) {
 	}
 
 	return filepath, nil
+}
+
+func (m *Migrator) openDB(dbURL string) (*sql.DB, error) {
+	dbURL = ensureSSLMode(dbURL)
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		return nil, fmt.Errorf("opening database: %w", err)
+	}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("connecting to database: %w", err)
+	}
+	return db, nil
+}
+
+func (m *Migrator) configureGoose() {
+	goose.SetDialect("postgres")
+	goose.SetVerbose(m.verbose)
+}
+
+// ensureSSLMode adds sslmode=disable if no sslmode is specified in the URL.
+func ensureSSLMode(dbURL string) string {
+	u, err := url.Parse(dbURL)
+	if err != nil {
+		return dbURL
+	}
+
+	q := u.Query()
+	if q.Get("sslmode") == "" {
+		q.Set("sslmode", "disable")
+		u.RawQuery = q.Encode()
+		return u.String()
+	}
+
+	return dbURL
 }

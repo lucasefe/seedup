@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/tmwinc/seedup/pkg/dbml"
-	"github.com/tmwinc/seedup/pkg/executor"
 )
 
 func newDBMLCmd() *cobra.Command {
@@ -23,8 +22,7 @@ func newDBMLCmd() *cobra.Command {
 		Short: "Generate DBML from database schema",
 		Long: `Generate DBML (Database Markup Language) documentation from the database schema.
 
-Requires the 'dbml' CLI tool to be installed:
-  go install github.com/lucasefe/dbml@latest
+DBML files can be visualized at https://dbdiagram.io
 
 Examples:
   seedup dbml                              # Output to stdout
@@ -37,8 +35,7 @@ Examples:
 				return fmt.Errorf("database URL required (use -d flag or DATABASE_URL env)")
 			}
 
-			exec := executor.New(executor.WithVerbose(verbose))
-			gen := dbml.New(exec)
+			gen := dbml.New()
 
 			opts := dbml.Options{
 				Output:     output,

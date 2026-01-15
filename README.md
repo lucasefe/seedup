@@ -1,26 +1,22 @@
 # seedup
 
-A CLI tool for managing PostgreSQL database migrations and seed data. Wraps [goose](https://github.com/pressly/goose) for migrations and provides utilities for creating and applying seed data.
+A CLI tool and Go library for managing PostgreSQL database migrations and seed data. Uses [goose](https://github.com/pressly/goose) for migrations and provides utilities for creating and applying seed data.
 
 ## Installation
+
+### CLI Tool
 
 ```bash
 go install github.com/tmwinc/seedup/cmd/seedup@latest
 ```
 
-## Requirements
-
-The following tools must be installed and available in your PATH:
-
-### Install Dependencies
+### Go Library
 
 ```bash
-# goose - Database migrations
-go install github.com/pressly/goose/v3/cmd/goose@latest
-
-# dbml - Schema documentation generator (optional, for dbml command)
-go install github.com/lucasefe/dbml@latest
+go get github.com/tmwinc/seedup
 ```
+
+## Requirements
 
 ### System Requirements
 
@@ -28,6 +24,8 @@ go install github.com/lucasefe/dbml@latest
 - `git` - For the check command (CI validation)
 
 ## Quick Start
+
+### CLI Usage
 
 ```bash
 # Set your database URL
@@ -41,6 +39,112 @@ seedup migrate up
 
 # Check migration status
 seedup migrate status
+```
+
+### Go Library Usage
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "github.com/tmwinc/seedup"
+)
+
+func main() {
+    ctx := context.Background()
+    dbURL := "postgres://user:pass@localhost/mydb"
+
+    // Run migrations
+    if err := seedup.MigrateUp(ctx, dbURL, "./migrations"); err != nil {
+        log.Fatal(err)
+    }
+
+    // Generate DBML documentation
+    dbml, err := seedup.GenerateDBML(ctx, dbURL, seedup.DBMLOptions{
+        ExcludeTables: []string{"goose_db_version"},
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(dbml)
+}
+```
+
+## Go Library API
+
+The seedup package exposes a clean public API for programmatic use:
+
+### Migration Functions
+
+```go
+// Run all pending migrations
+seedup.MigrateUp(ctx, dbURL, migrationsDir)
+
+// Run a single pending migration
+seedup.MigrateUpByOne(ctx, dbURL, migrationsDir)
+
+// Rollback the last migration
+seedup.MigrateDown(ctx, dbURL, migrationsDir)
+
+// Show migration status (prints to stdout)
+seedup.MigrateStatus(ctx, dbURL, migrationsDir)
+
+// Create a new migration file
+path, err := seedup.MigrateCreate(migrationsDir, "add_users_table")
+```
+
+### DBML Generation
+
+```go
+// Generate DBML schema documentation
+content, err := seedup.GenerateDBML(ctx, dbURL, seedup.DBMLOptions{
+    Schemas:       []string{"public", "auth"},  // Specific schemas
+    ExcludeTables: []string{"goose_db_version"}, // Tables to skip
+    AllSchemas:    false,                        // Include all non-system schemas
+})
+```
+
+### Seed Functions
+
+```go
+// Apply seed data to the database
+seedup.SeedApply(ctx, dbURL, migrationsDir, seedDir)
+
+// Create seed data from an existing database
+seedup.SeedCreate(ctx, dbURL, migrationsDir, seedDir, queryFile, seedup.SeedCreateOptions{
+    DryRun: false,
+})
+```
+
+### Database Management
+
+```go
+// Create the database
+seedup.DBCreate(ctx, dbURL, seedup.DBOptions{AdminURL: ""})
+
+// Drop the database
+seedup.DBDrop(ctx, dbURL, seedup.DBOptions{AdminURL: ""})
+
+// Full database setup (drop, create, migrate, seed)
+seedup.DBSetup(ctx, seedup.DBSetupOptions{
+    DatabaseURL:   dbURL,
+    MigrationsDir: "./migrations",
+    SeedDir:       "./seed",
+    SeedName:      "dev",
+})
+```
+
+### Utilities
+
+```go
+// Flatten all migrations into a single initial migration
+seedup.Flatten(ctx, dbURL, migrationsDir)
+
+// Validate migration timestamps (for CI)
+seedup.Check(ctx, migrationsDir, "main")
 ```
 
 ## Integrating seedup into Your Project

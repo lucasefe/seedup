@@ -17,7 +17,7 @@ type Manager struct {
 func New(exec executor.Executor) *Manager {
 	return &Manager{
 		exec:     exec,
-		migrator: migrate.New(exec),
+		migrator: migrate.New(),
 		seeder:   seed.New(exec),
 	}
 }

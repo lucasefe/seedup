@@ -2,16 +2,15 @@ package dbml
 
 import (
 	"context"
+	"fmt"
 	"net/url"
-	"strings"
+	"os"
 
-	"github.com/tmwinc/seedup/pkg/executor"
+	"github.com/lucasefe/dbml"
 )
 
 // Generator handles DBML generation from PostgreSQL databases
-type Generator struct {
-	exec executor.Executor
-}
+type Generator struct{}
 
 // Options configures DBML generation
 type Options struct {
@@ -21,31 +20,37 @@ type Options struct {
 	AllSchemas    bool     // Include all non-system schemas
 }
 
-// New creates a new Generator with the given executor
-func New(exec executor.Executor) *Generator {
-	return &Generator{exec: exec}
+// New creates a new Generator
+func New() *Generator {
+	return &Generator{}
 }
 
 // Generate creates a DBML file from the database schema
 func (g *Generator) Generate(ctx context.Context, dbURL string, opts Options) error {
-	// Ensure sslmode is set (lib/pq requires explicit SSL config unlike psql)
+	result, err := g.GenerateString(ctx, dbURL, opts)
+	if err != nil {
+		return err
+	}
+
+	if opts.Output == "" {
+		fmt.Print(result)
+		return nil
+	}
+
+	return os.WriteFile(opts.Output, []byte(result), 0644)
+}
+
+// GenerateString generates DBML and returns it as a string
+func (g *Generator) GenerateString(ctx context.Context, dbURL string, opts Options) (string, error) {
 	dbURL = ensureSSLMode(dbURL)
 
-	args := []string{"--url", dbURL}
-
-	if opts.Output != "" {
-		args = append(args, "--output", opts.Output)
-	}
-	if opts.AllSchemas {
-		args = append(args, "--all-schemas")
-	} else if len(opts.Schemas) > 0 {
-		args = append(args, "--schemas", strings.Join(opts.Schemas, ","))
-	}
-	if len(opts.ExcludeTables) > 0 {
-		args = append(args, "--exclude-tables", strings.Join(opts.ExcludeTables, ","))
+	config := &dbml.Config{
+		Schemas:           opts.Schemas,
+		ExcludeTables:     opts.ExcludeTables,
+		IncludeAllSchemas: opts.AllSchemas,
 	}
 
-	return g.exec.Run(ctx, "dbml", args...)
+	return dbml.GenerateFromConnectionString(dbURL, config)
 }
 
 // ensureSSLMode adds sslmode=disable if no sslmode is specified in the URL.

@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/tmwinc/seedup/pkg/executor"
-	"github.com/tmwinc/seedup/pkg/migrate"
 	"github.com/spf13/cobra"
+	"github.com/tmwinc/seedup/pkg/migrate"
 )
 
 func newMigrateCmd() *cobra.Command {
@@ -36,9 +35,7 @@ func newMigrateUpCmd() *cobra.Command {
 				return fmt.Errorf("database URL required (use -d flag or DATABASE_URL env)")
 			}
 
-			exec := executor.New(executor.WithVerbose(verbose))
-			m := migrate.New(exec)
-
+			m := migrate.New(migrate.WithVerbose(verbose))
 			return m.Up(context.Background(), dbURL, getMigrationsDir())
 		},
 	}
@@ -54,9 +51,7 @@ func newMigrateUpByOneCmd() *cobra.Command {
 				return fmt.Errorf("database URL required (use -d flag or DATABASE_URL env)")
 			}
 
-			exec := executor.New(executor.WithVerbose(verbose))
-			m := migrate.New(exec)
-
+			m := migrate.New(migrate.WithVerbose(verbose))
 			return m.UpByOne(context.Background(), dbURL, getMigrationsDir())
 		},
 	}
@@ -72,9 +67,7 @@ func newMigrateDownCmd() *cobra.Command {
 				return fmt.Errorf("database URL required (use -d flag or DATABASE_URL env)")
 			}
 
-			exec := executor.New(executor.WithVerbose(verbose))
-			m := migrate.New(exec)
-
+			m := migrate.New(migrate.WithVerbose(verbose))
 			return m.Down(context.Background(), dbURL, getMigrationsDir())
 		},
 	}
@@ -90,9 +83,7 @@ func newMigrateStatusCmd() *cobra.Command {
 				return fmt.Errorf("database URL required (use -d flag or DATABASE_URL env)")
 			}
 
-			exec := executor.New(executor.WithVerbose(verbose))
-			m := migrate.New(exec)
-
+			m := migrate.New(migrate.WithVerbose(verbose))
 			return m.Status(context.Background(), dbURL, getMigrationsDir())
 		},
 	}
@@ -104,8 +95,7 @@ func newMigrateCreateCmd() *cobra.Command {
 		Short: "Create a new migration file",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			exec := executor.New(executor.WithVerbose(verbose))
-			m := migrate.New(exec)
+			m := migrate.New(migrate.WithVerbose(verbose))
 
 			filepath, err := m.Create(getMigrationsDir(), args[0])
 			if err != nil {
