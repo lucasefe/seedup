@@ -252,6 +252,8 @@ func dumpEnums(ctx context.Context, db *sql.DB) ([]string, error) {
 		JOIN pg_namespace n ON t.typnamespace = n.oid
 		WHERE t.typtype = 'e'
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+		  AND n.nspname NOT LIKE 'pg_temp_%'
+		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		GROUP BY n.nspname, t.typname
 		ORDER BY n.nspname, t.typname
 	`
@@ -307,6 +309,8 @@ func dumpDomains(ctx context.Context, db *sql.DB) ([]string, error) {
 		JOIN pg_namespace n ON t.typnamespace = n.oid
 		WHERE t.typtype = 'd'
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+		  AND n.nspname NOT LIKE 'pg_temp_%'
+		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		ORDER BY n.nspname, t.typname
 	`
 
@@ -391,6 +395,8 @@ func dumpCompositeTypes(ctx context.Context, db *sql.DB) ([]string, error) {
 		JOIN pg_namespace n ON t.typnamespace = n.oid
 		WHERE t.typtype = 'c'
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+		  AND n.nspname NOT LIKE 'pg_temp_%'
+		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		  AND NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.reltype = t.oid AND c.relkind = 'r')
 		ORDER BY n.nspname, t.typname
 	`
@@ -452,6 +458,8 @@ func dumpSequences(ctx context.Context, db *sql.DB, _ map[string]bool) ([]string
 		SELECT schemaname, sequencename, start_value, increment_by, max_value, min_value, cache_size, cycle
 		FROM pg_sequences
 		WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+		  AND schemaname NOT LIKE 'pg_temp_%'
+		  AND schemaname NOT LIKE 'pg_toast_temp_%'
 		ORDER BY schemaname, sequencename
 	`
 
@@ -508,6 +516,8 @@ func dumpFunctions(ctx context.Context, db *sql.DB) ([]string, error) {
 		FROM pg_proc p
 		JOIN pg_namespace n ON p.pronamespace = n.oid
 		WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+		  AND n.nspname NOT LIKE 'pg_temp_%'
+		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		  AND p.prokind IN ('f', 'p')  -- functions and procedures
 		ORDER BY n.nspname, p.proname, p.oid
 	`
@@ -536,6 +546,8 @@ func dumpTables(ctx context.Context, db *sql.DB, excludeSet map[string]bool) ([]
 		SELECT schemaname, tablename
 		FROM pg_tables
 		WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+		  AND schemaname NOT LIKE 'pg_temp_%'
+		  AND schemaname NOT LIKE 'pg_toast_temp_%'
 		ORDER BY schemaname, tablename
 	`
 
@@ -652,6 +664,8 @@ func dumpViews(ctx context.Context, db *sql.DB, excludeSet map[string]bool) ([]s
 		SELECT schemaname, viewname, definition
 		FROM pg_views
 		WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+		  AND schemaname NOT LIKE 'pg_temp_%'
+		  AND schemaname NOT LIKE 'pg_toast_temp_%'
 		ORDER BY schemaname, viewname
 	`
 
@@ -693,6 +707,8 @@ func dumpPrimaryKeys(ctx context.Context, db *sql.DB, excludeSet map[string]bool
 		JOIN pg_namespace n ON c.relnamespace = n.oid
 		WHERE con.contype = 'p'
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+		  AND n.nspname NOT LIKE 'pg_temp_%'
+		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		ORDER BY n.nspname, c.relname, con.conname
 	`
 
@@ -735,6 +751,8 @@ func dumpUniqueConstraints(ctx context.Context, db *sql.DB, excludeSet map[strin
 		JOIN pg_namespace n ON c.relnamespace = n.oid
 		WHERE con.contype = 'u'
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+		  AND n.nspname NOT LIKE 'pg_temp_%'
+		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		ORDER BY n.nspname, c.relname, con.conname
 	`
 
@@ -777,6 +795,8 @@ func dumpCheckConstraints(ctx context.Context, db *sql.DB, excludeSet map[string
 		JOIN pg_namespace n ON c.relnamespace = n.oid
 		WHERE con.contype = 'c'
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+		  AND n.nspname NOT LIKE 'pg_temp_%'
+		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		ORDER BY n.nspname, c.relname, con.conname
 	`
 
@@ -819,6 +839,8 @@ func dumpForeignKeys(ctx context.Context, db *sql.DB, excludeSet map[string]bool
 		JOIN pg_namespace n ON c.relnamespace = n.oid
 		WHERE con.contype = 'f'
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+		  AND n.nspname NOT LIKE 'pg_temp_%'
+		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		ORDER BY n.nspname, c.relname, con.conname
 	`
 
@@ -857,6 +879,8 @@ func dumpIndexes(ctx context.Context, db *sql.DB, excludeSet map[string]bool) ([
 		SELECT schemaname, tablename, indexname, indexdef
 		FROM pg_indexes
 		WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+		  AND schemaname NOT LIKE 'pg_temp_%'
+		  AND schemaname NOT LIKE 'pg_toast_temp_%'
 		  AND indexname NOT IN (
 		      SELECT conname FROM pg_constraint
 		      WHERE contype IN ('p', 'u', 'x')
@@ -899,6 +923,8 @@ func dumpTriggers(ctx context.Context, db *sql.DB, excludeSet map[string]bool) (
 		JOIN pg_namespace n ON c.relnamespace = n.oid
 		WHERE NOT t.tgisinternal
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+		  AND n.nspname NOT LIKE 'pg_temp_%'
+		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		ORDER BY n.nspname, c.relname, t.tgname
 	`
 

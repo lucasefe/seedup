@@ -3,13 +3,13 @@
 
 -- Table: public.users
 INSERT INTO "public"."users" ("id", "name", "email", "created_at") VALUES
-    (1, 'Alice', 'alice@example.com', '2026-01-18 15:39:04.931863'),
-    (2, 'Bob', 'bob@example.com', '2026-01-18 15:39:04.931863'),
-    (3, 'Charlie', 'charlie@example.com', '2026-01-18 15:39:04.931863');
+    (1, 'Alice', 'alice@example.com', '2026-01-18 15:42:10.87028'),
+    (2, 'Bob', 'bob@example.com', '2026-01-18 15:42:10.87028'),
+    (3, 'Charlie', 'charlie@example.com', '2026-01-18 15:42:10.87028');
 
 -- Table: public.posts
 INSERT INTO "public"."posts" ("id", "user_id", "title", "body", "created_at") VALUES
-    (1, 1, 'Hello World', 'This is my first post!', '2026-01-18 15:39:04.931863'),
-    (2, 1, 'Second Post', 'Another post from Alice', '2026-01-18 15:39:04.931863'),
-    (3, 2, 'Bobs Post', 'Hello from Bob', '2026-01-18 15:39:04.931863');
+    (1, 1, 'Hello World', 'This is my first post!', '2026-01-18 15:42:10.87028'),
+    (2, 1, 'Second Post', 'Another post from Alice', '2026-01-18 15:42:10.87028'),
+    (3, 2, 'Bobs Post', 'Hello from Bob', '2026-01-18 15:42:10.87028');
 
