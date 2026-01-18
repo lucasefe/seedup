@@ -4,6 +4,7 @@
 //   - Running migrations
 //   - Generating DBML documentation
 //   - Creating migrations programmatically
+//   - Flattening migrations into a single file
 //
 // To run this example:
 //
@@ -81,20 +82,9 @@ func main() {
 	fmt.Println()
 
 	// =========================================================================
-	// 4. Insert Some Test Data
+	// 4. Generate DBML Documentation
 	// =========================================================================
-	fmt.Println("4. Inserting test data...")
-
-	if err := insertTestData(dbURL); err != nil {
-		log.Fatalf("Failed to insert test data: %v", err)
-	}
-	fmt.Println("   Test data inserted")
-	fmt.Println()
-
-	// =========================================================================
-	// 5. Generate DBML Documentation
-	// =========================================================================
-	fmt.Println("5. Generating DBML documentation...")
+	fmt.Println("4. Generating DBML documentation...")
 
 	dbml, err := seedup.GenerateDBML(ctx, dbURL, seedup.DBMLOptions{
 		ExcludeTables: []string{"goose_db_version"},
@@ -110,9 +100,9 @@ func main() {
 	fmt.Println()
 
 	// =========================================================================
-	// 6. Seed Data Info
+	// 5. Seed Data Info
 	// =========================================================================
-	fmt.Println("6. Seed data operations...")
+	fmt.Println("5. Seed data operations...")
 
 	seedQueryFile := filepath.Join(seedDir, "dev.sql")
 	seedOutputDir := filepath.Join(seedDir, "dev")
@@ -125,9 +115,9 @@ func main() {
 	fmt.Println()
 
 	// =========================================================================
-	// 7. Create a New Migration
+	// 6. Create a New Migration
 	// =========================================================================
-	fmt.Println("7. Creating a new migration...")
+	fmt.Println("6. Creating a new migration...")
 
 	newMigration, err := seedup.MigrateCreate(migrationsDir, "add_comments")
 	if err != nil {
@@ -141,14 +131,32 @@ func main() {
 	fmt.Println()
 
 	// =========================================================================
-	// 8. Rollback Migration
+	// 7. Rollback Migration
 	// =========================================================================
-	fmt.Println("8. Rolling back last migration...")
+	fmt.Println("7. Rolling back last migration...")
 
 	if err := seedup.MigrateDown(ctx, dbURL, migrationsDir); err != nil {
 		log.Fatalf("Failed to rollback migration: %v", err)
 	}
 	fmt.Println("   Rollback complete")
+	fmt.Println()
+
+	// =========================================================================
+	// 8. Flatten Migrations
+	// =========================================================================
+	fmt.Println("8. Flattening migrations...")
+	fmt.Println("   (Consolidates all applied migrations into a single initial migration)")
+
+	if err := seedup.Flatten(ctx, dbURL, migrationsDir); err != nil {
+		log.Fatalf("Failed to flatten migrations: %v", err)
+	}
+
+	// Show what files exist after flattening
+	fmt.Println("   Migration files after flatten:")
+	files, _ := filepath.Glob(filepath.Join(migrationsDir, "*.sql"))
+	for _, f := range files {
+		fmt.Printf("   - %s\n", filepath.Base(f))
+	}
 	fmt.Println()
 
 	// =========================================================================
@@ -162,7 +170,7 @@ func main() {
 	fmt.Println("   seedup.DBSetup(ctx, opts)          - Full setup: drop + create + migrate + seed")
 	fmt.Println()
 	fmt.Println("   DBSetup example:")
-	fmt.Println(`
+	fmt.Print(`
    err := seedup.DBSetup(ctx, seedup.DBSetupOptions{
        DatabaseURL:   "postgres://myuser:mypass@localhost/mydb",
        MigrationsDir: "./migrations",
@@ -189,30 +197,6 @@ func resetSchema(dbURL string) error {
 		_, _ = db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", table))
 	}
 	return nil
-}
-
-// insertTestData adds some sample data to the database
-func insertTestData(dbURL string) error {
-	db, err := sql.Open("postgres", dbURL)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	_, err = db.Exec(`
-		INSERT INTO users (name, email) VALUES
-			('Alice', 'alice@example.com'),
-			('Bob', 'bob@example.com'),
-			('Charlie', 'charlie@example.com')
-		ON CONFLICT (email) DO NOTHING;
-
-		INSERT INTO posts (user_id, title, body) VALUES
-			(1, 'Hello World', 'This is my first post!'),
-			(1, 'Second Post', 'Another post from Alice'),
-			(2, 'Bobs Post', 'Hello from Bob')
-		ON CONFLICT DO NOTHING;
-	`)
-	return err
 }
 
 // getEnv returns the environment variable value or a default
