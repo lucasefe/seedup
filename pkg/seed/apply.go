@@ -45,30 +45,34 @@ func (s *Seeder) loadSeedData(ctx context.Context, dbURL, seedDir string) error 
 	}
 	defer db.Close()
 
-	// Find SQL files (new format)
-	sqlFiles, err := filepath.Glob(filepath.Join(seedDir, "*.sql"))
+	// Look for load.sql (new format)
+	seedFile := filepath.Join(seedDir, "load.sql")
+	content, err := os.ReadFile(seedFile)
 	if err != nil {
-		return fmt.Errorf("finding SQL files: %w", err)
+		if os.IsNotExist(err) {
+			// Check for legacy per-table files
+			legacyFiles, _ := filepath.Glob(filepath.Join(seedDir, "*.*.sql"))
+			if len(legacyFiles) > 0 {
+				return fmt.Errorf("found legacy per-table SQL files but no load.sql. Please run 'seed create' to regenerate seed files in the new format")
+			}
+			fmt.Println("No load.sql found in seed directory")
+			return nil
+		}
+		return fmt.Errorf("reading seed file %s: %w", seedFile, err)
 	}
 
-	// Also check for legacy CSV files
-	csvFiles, _ := filepath.Glob(filepath.Join(seedDir, "*.csv"))
-	if len(csvFiles) > 0 && len(sqlFiles) == 0 {
-		return fmt.Errorf("found CSV files but no SQL files in seed directory. Please run 'seed create' to regenerate seed files in the new SQL format")
-	}
-
-	if len(sqlFiles) == 0 {
-		fmt.Println("No SQL files found in seed directory")
-		return nil
-	}
-
-	// Build map of SQL file by table name
-	sqlByTable := make(map[string]string)
+	// Extract table names from comments (e.g., "-- Table: public.users")
 	var tables []string
-	for _, sqlFile := range sqlFiles {
-		table := strings.TrimSuffix(filepath.Base(sqlFile), ".sql")
-		sqlByTable[table] = sqlFile
-		tables = append(tables, table)
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.HasPrefix(line, "-- Table: ") {
+			tableName := strings.TrimPrefix(line, "-- Table: ")
+			tables = append(tables, tableName)
+		}
+	}
+
+	if len(tables) == 0 {
+		fmt.Println("No tables found in seed file")
+		return nil
 	}
 
 	// Get the correct import order based on foreign key dependencies
@@ -93,27 +97,11 @@ func (s *Seeder) loadSeedData(ctx context.Context, dbURL, seedDir string) error 
 		}
 	}
 
-	// Execute SQL files in dependency order
-	for _, table := range orderedTables {
-		sqlFile := sqlByTable[table]
-		content, err := os.ReadFile(sqlFile)
-		if err != nil {
-			return fmt.Errorf("reading SQL file %s: %w", sqlFile, err)
-		}
-
-		// Skip empty files or comment-only files
-		contentStr := strings.TrimSpace(string(content))
-		if contentStr == "" || strings.HasPrefix(contentStr, "-- No data") {
-			fmt.Printf("Skipping empty table %s\n", table)
-			continue
-		}
-
-		// Execute the INSERT statements
-		if _, err := tx.ExecContext(ctx, string(content)); err != nil {
-			return fmt.Errorf("executing SQL for table %s: %w", table, err)
-		}
-		fmt.Printf("Loaded data for %s\n", table)
+	// Execute the entire seed file
+	if _, err := tx.ExecContext(ctx, string(content)); err != nil {
+		return fmt.Errorf("executing seed file: %w", err)
 	}
+	fmt.Printf("Loaded seed data for %d tables\n", len(tables))
 
 	// Commit transaction
 	if err := tx.Commit(); err != nil {

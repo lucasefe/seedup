@@ -1,6 +1,6 @@
 .PHONY: run reset db-create db-drop fresh seed-create
 
-DBNAME = seedup_example
+DBNAME = seedup-usage-example
 SEEDUP = go run ../cmd/seedup/main.go
 DB_URL = postgres://$(shell whoami)@localhost/$(DBNAME)?sslmode=disable
 
@@ -12,7 +12,7 @@ run: reset
 reset:
 	rm -rf migrations/*
 	cp migrations_source/*.sql migrations/
-	rm -rf seed/dev/*
+	rm -f seed/dev/load.sql
 
 # Create the database
 db-create:
@@ -29,8 +29,8 @@ fresh: db-drop db-create run
 # 1. Drops and recreates DB for clean state
 # 2. Resets migrations to source
 # 3. Runs migrations (populates DB with test data)
-# 4. Extracts data to seed/dev/ using the query in seed/dev.sql
+# 4. Extracts data to seed/dev/load.sql using the query in seed/dev/dump.sql
 seed-create: db-drop db-create reset
 	$(SEEDUP) migrate up -d "$(DB_URL)"
 	$(SEEDUP) seed create dev -d "$(DB_URL)"
-	@echo "Seed files created in seed/dev/"
+	@echo "Seed created: seed/dev/load.sql"

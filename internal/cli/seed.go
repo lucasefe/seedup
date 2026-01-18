@@ -33,7 +33,7 @@ func newSeedApplyCmd() *cobra.Command {
 		Long: `Apply seed data to the database.
 
 The <name> argument specifies which seed set to apply (e.g., "dev", "staging").
-This loads SQL files from seed/<name>/, runs migrations, and imports the data.
+This loads seed/<name>/load.sql, runs migrations, and imports the data.
 
 Example:
   seedup seed apply dev -d postgres://user:pass@localhost/mydb`,
@@ -65,8 +65,8 @@ func newSeedCreateCmd() *cobra.Command {
 		Long: `Create seed data from a database.
 
 The <name> argument specifies the seed set name (e.g., "dev", "staging").
-This reads the query file at seed/<name>.sql, executes it against the database,
-and exports the results to SQL files in seed/<name>/.
+This reads the query file at seed/<name>/dump.sql, executes it against the database,
+and exports the results to seed/<name>/load.sql.
 
 The seed query file should contain SQL that populates temporary tables with the
 data you want to include in the seed. Each table in the database has a corresponding
@@ -88,8 +88,8 @@ Example:
 			// Seed data directory: ./seed/<name>/
 			dir := filepath.Join(getSeedDir(), name)
 
-			// Seed query file: ./seed/<name>.sql
-			queryFile := filepath.Join(getSeedDir(), name+".sql")
+			// Seed query file: ./seed/<name>/dump.sql
+			queryFile := filepath.Join(dir, "dump.sql")
 
 			opts := seed.CreateOptions{
 				DryRun: dryRun,

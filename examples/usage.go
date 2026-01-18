@@ -9,12 +9,12 @@
 // To run this example:
 //
 //	cd examples
-//	createdb seedup_example  # Create the database first
+//	createdb seedup-usage-example  # Create the database first
 //	go run usage.go
 //
 // Prerequisites:
 //   - PostgreSQL running locally
-//   - Database 'seedup_example' created (createdb seedup_example)
+//   - Database 'seedup-usage-example' created (createdb seedup-usage-example)
 package main
 
 import (
@@ -104,14 +104,16 @@ func main() {
 	// =========================================================================
 	fmt.Println("5. Seed data operations...")
 
-	seedQueryFile := filepath.Join(seedDir, "dev.sql")
-	seedOutputDir := filepath.Join(seedDir, "dev")
+	seedSetDir := filepath.Join(seedDir, "dev")
+	seedDumpFile := filepath.Join(seedSetDir, "dump.sql")
+	seedLoadFile := filepath.Join(seedSetDir, "load.sql")
 
-	fmt.Printf("   Seed query file: %s\n", seedQueryFile)
-	fmt.Printf("   Seed output dir: %s\n", seedOutputDir)
+	fmt.Printf("   Seed directory: %s\n", seedSetDir)
+	fmt.Printf("   Dump file (input):  %s\n", seedDumpFile)
+	fmt.Printf("   Load file (generated): %s\n", seedLoadFile)
 	fmt.Println()
-	fmt.Println("   To create seeds: seedup.SeedCreate(ctx, dbURL, migrationsDir, seedOutputDir, seedQueryFile, opts)")
-	fmt.Println("   To apply seeds:  seedup.SeedApply(ctx, dbURL, migrationsDir, seedOutputDir)")
+	fmt.Println("   To create seeds: seedup.SeedCreate(ctx, dbURL, migrationsDir, seedSetDir, seedDumpFile, opts)")
+	fmt.Println("   To apply seeds:  seedup.SeedApply(ctx, dbURL, migrationsDir, seedSetDir)")
 	fmt.Println()
 
 	// =========================================================================
@@ -214,5 +216,5 @@ func defaultDatabaseURL() string {
 	if u, err := user.Current(); err == nil {
 		username = u.Username
 	}
-	return fmt.Sprintf("postgres://%s@localhost/seedup_example?sslmode=disable", username)
+	return fmt.Sprintf("postgres://%s@localhost/seedup-usage-example?sslmode=disable", username)
 }

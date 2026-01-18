@@ -21,13 +21,13 @@ CREATE TABLE "public"."users" (
 );
 
 -- Primary keys
-ALTER TABLE "pg_temp_69"."seed.public.posts" ADD CONSTRAINT "seed.public.posts_pkey" PRIMARY KEY (id);
-ALTER TABLE "pg_temp_69"."seed.public.users" ADD CONSTRAINT "seed.public.users_pkey" PRIMARY KEY (id);
+ALTER TABLE "pg_temp_84"."seed.public.posts" ADD CONSTRAINT "seed.public.posts_pkey" PRIMARY KEY (id);
+ALTER TABLE "pg_temp_84"."seed.public.users" ADD CONSTRAINT "seed.public.users_pkey" PRIMARY KEY (id);
 ALTER TABLE "public"."posts" ADD CONSTRAINT "posts_pkey" PRIMARY KEY (id);
 ALTER TABLE "public"."users" ADD CONSTRAINT "users_pkey" PRIMARY KEY (id);
 
 -- Unique constraints
-ALTER TABLE "pg_temp_69"."seed.public.users" ADD CONSTRAINT "seed.public.users_email_key" UNIQUE (email);
+ALTER TABLE "pg_temp_84"."seed.public.users" ADD CONSTRAINT "seed.public.users_email_key" UNIQUE (email);
 ALTER TABLE "public"."users" ADD CONSTRAINT "users_email_key" UNIQUE (email);
 
 -- Foreign keys
