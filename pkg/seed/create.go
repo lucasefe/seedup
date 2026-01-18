@@ -190,11 +190,7 @@ func (s *Seeder) extractSeedData(ctx context.Context, db *sql.DB, tables []table
 		return fmt.Errorf("writing output file: %w", err)
 	}
 
-	// Commit the transaction
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing transaction: %w", err)
-	}
-
+	// No need to commit - the deferred tx.Rollback() will clean up temp tables
 	return nil
 }
 
