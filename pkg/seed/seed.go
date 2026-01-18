@@ -1,7 +1,7 @@
 package seed
 
 import (
-	"github.com/tmwinc/seedup/pkg/migrate"
+	"github.com/lucasefe/seedup/pkg/migrate"
 )
 
 // Seeder handles seed data operations

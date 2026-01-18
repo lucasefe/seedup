@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/tmwinc/seedup/pkg/migrate"
+	"github.com/lucasefe/seedup/pkg/migrate"
 )
 
 func newMigrateCmd() *cobra.Command {

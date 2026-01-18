@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tmwinc/seedup/pkg/pgconn"
+	"github.com/lucasefe/seedup/pkg/pgconn"
 )
 
 // Flattener consolidates migrations into a single initial migration

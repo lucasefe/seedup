@@ -1,8 +1,8 @@
 package db
 
 import (
-	"github.com/tmwinc/seedup/pkg/migrate"
-	"github.com/tmwinc/seedup/pkg/seed"
+	"github.com/lucasefe/seedup/pkg/migrate"
+	"github.com/lucasefe/seedup/pkg/seed"
 )
 
 // Manager handles database setup operations

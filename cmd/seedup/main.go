@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/tmwinc/seedup/internal/cli"
+	"github.com/lucasefe/seedup/internal/cli"
 )
 
 func main() {

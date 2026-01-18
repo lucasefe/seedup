@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tmwinc/seedup/pkg/executor"
+	"github.com/lucasefe/seedup/pkg/executor"
 )
 
 // Checker validates migration file timestamps

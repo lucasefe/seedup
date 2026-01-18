@@ -7,13 +7,13 @@ A CLI tool and Go library for managing PostgreSQL database migrations and seed d
 ### CLI Tool
 
 ```bash
-go install github.com/tmwinc/seedup/cmd/seedup@latest
+go install github.com/lucasefe/seedup/cmd/seedup@latest
 ```
 
 ### Go Library
 
 ```bash
-go get github.com/tmwinc/seedup
+go get github.com/lucasefe/seedup
 ```
 
 ## Requirements
@@ -49,7 +49,7 @@ import (
     "context"
     "log"
 
-    "github.com/tmwinc/seedup"
+    "github.com/lucasefe/seedup"
 )
 
 func main() {
@@ -245,7 +245,7 @@ jobs:
           go-version: '1.22'
 
       - name: Install seedup
-        run: go install github.com/tmwinc/seedup/cmd/seedup@latest
+        run: go install github.com/lucasefe/seedup/cmd/seedup@latest
 
       - name: Check migration timestamps
         run: seedup check --base-branch ${{ github.base_ref || 'main' }}

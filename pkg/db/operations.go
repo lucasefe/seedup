@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tmwinc/seedup/pkg/pgconn"
+	"github.com/lucasefe/seedup/pkg/pgconn"
 )
 
 // Drop drops the database specified in the DATABASE_URL

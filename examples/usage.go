@@ -27,7 +27,7 @@ import (
 	"path/filepath"
 
 	_ "github.com/lib/pq"
-	"github.com/tmwinc/seedup"
+	"github.com/lucasefe/seedup"
 )
 
 func main() {

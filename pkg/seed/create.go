@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tmwinc/seedup/pkg/migrate"
-	"github.com/tmwinc/seedup/pkg/pgconn"
+	"github.com/lucasefe/seedup/pkg/migrate"
+	"github.com/lucasefe/seedup/pkg/pgconn"
 )
 
 // CreateOptions configures the seed creation process

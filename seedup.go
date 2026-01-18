@@ -46,13 +46,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tmwinc/seedup/pkg/check"
-	"github.com/tmwinc/seedup/pkg/db"
-	"github.com/tmwinc/seedup/pkg/dbml"
-	"github.com/tmwinc/seedup/pkg/executor"
-	"github.com/tmwinc/seedup/pkg/migrate"
-	"github.com/tmwinc/seedup/pkg/pgconn"
-	"github.com/tmwinc/seedup/pkg/seed"
+	"github.com/lucasefe/seedup/pkg/check"
+	"github.com/lucasefe/seedup/pkg/db"
+	"github.com/lucasefe/seedup/pkg/dbml"
+	"github.com/lucasefe/seedup/pkg/executor"
+	"github.com/lucasefe/seedup/pkg/migrate"
+	"github.com/lucasefe/seedup/pkg/pgconn"
+	"github.com/lucasefe/seedup/pkg/seed"
 )
 
 // DBMLOptions configures DBML generation.

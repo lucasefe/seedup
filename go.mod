@@ -1,4 +1,4 @@
-module github.com/tmwinc/seedup
+module github.com/lucasefe/seedup
 
 go 1.25.4
 

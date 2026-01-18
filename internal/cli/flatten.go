@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/tmwinc/seedup/pkg/migrate"
-	"github.com/tmwinc/seedup/pkg/pgconn"
+	"github.com/lucasefe/seedup/pkg/migrate"
+	"github.com/lucasefe/seedup/pkg/pgconn"
 )
 
 func newFlattenCmd() *cobra.Command {

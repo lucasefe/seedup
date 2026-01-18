@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/tmwinc/seedup/pkg/dbml"
+	"github.com/lucasefe/seedup/pkg/dbml"
 )
 
 func newDBMLCmd() *cobra.Command {

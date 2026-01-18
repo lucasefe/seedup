@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tmwinc/seedup/pkg/pgconn"
+	"github.com/lucasefe/seedup/pkg/pgconn"
 )
 
 // Apply seeds the database with data from SQL files

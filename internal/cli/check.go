@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tmwinc/seedup/pkg/check"
-	"github.com/tmwinc/seedup/pkg/executor"
+	"github.com/lucasefe/seedup/pkg/check"
+	"github.com/lucasefe/seedup/pkg/executor"
 	"github.com/spf13/cobra"
 )
 
