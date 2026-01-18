@@ -20,12 +20,6 @@ type Executor interface {
 
 	// RunWithStdin executes a command with stdin input
 	RunWithStdin(ctx context.Context, stdin io.Reader, name string, args ...string) error
-
-	// RunSQL executes a SQL query using psql
-	RunSQL(ctx context.Context, dbURL, query string) (string, error)
-
-	// RunSQLFile executes a SQL file using psql
-	RunSQLFile(ctx context.Context, dbURL, filePath string) error
 }
 
 // OSExecutor implements Executor using os/exec
@@ -112,12 +106,4 @@ func (e *OSExecutor) RunWithStdin(ctx context.Context, stdin io.Reader, name str
 	cmd.Stderr = e.stderr
 
 	return cmd.Run()
-}
-
-func (e *OSExecutor) RunSQL(ctx context.Context, dbURL, query string) (string, error) {
-	return e.RunWithOutput(ctx, "psql", "-X", "-t", "-c", query, dbURL)
-}
-
-func (e *OSExecutor) RunSQLFile(ctx context.Context, dbURL, filePath string) error {
-	return e.Run(ctx, "psql", "-X", "-q", "-v", "ON_ERROR_STOP=on", "-f", filePath, dbURL)
 }

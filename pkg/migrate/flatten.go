@@ -3,29 +3,30 @@ package migrate
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/tmwinc/seedup/pkg/executor"
+	"github.com/tmwinc/seedup/pkg/pgconn"
 )
 
 // Flattener consolidates migrations into a single initial migration
 type Flattener struct {
-	exec executor.Executor
+	db *sql.DB
 }
 
-// NewFlattener creates a new Flattener with the given executor
-func NewFlattener(exec executor.Executor) *Flattener {
-	return &Flattener{exec: exec}
+// NewFlattener creates a new Flattener with the given database connection
+func NewFlattener(db *sql.DB) *Flattener {
+	return &Flattener{db: db}
 }
 
 // Flatten consolidates all applied migrations into a single initial migration
 // It dumps the current schema and replaces all migration files with a single initial file
-func (f *Flattener) Flatten(ctx context.Context, dbURL, migrationsDir string) error {
+func (f *Flattener) Flatten(ctx context.Context, migrationsDir string) error {
 	// Get all applied migration versions
-	versions, err := f.getAppliedVersions(ctx, dbURL)
+	versions, err := f.getAppliedVersions(ctx)
 	if err != nil {
 		return fmt.Errorf("getting applied versions: %w", err)
 	}
@@ -38,8 +39,8 @@ func (f *Flattener) Flatten(ctx context.Context, dbURL, migrationsDir string) er
 	// Get the latest version for the new initial migration
 	latestVersion := versions[len(versions)-1]
 
-	// Dump the current schema
-	schema, err := f.dumpSchema(ctx, dbURL)
+	// Dump the current schema using our custom schema dumper
+	schema, err := f.dumpSchema(ctx)
 	if err != nil {
 		return fmt.Errorf("dumping schema: %w", err)
 	}
@@ -64,66 +65,57 @@ func (f *Flattener) Flatten(ctx context.Context, dbURL, migrationsDir string) er
 	return nil
 }
 
-func (f *Flattener) getAppliedVersions(ctx context.Context, dbURL string) ([]string, error) {
+func (f *Flattener) getAppliedVersions(ctx context.Context) ([]string, error) {
 	// First check if the goose_db_version table exists
 	checkQuery := `SELECT EXISTS (
 		SELECT FROM information_schema.tables
 		WHERE table_schema = 'public'
 		AND table_name = 'goose_db_version'
 	)`
-	exists, err := f.exec.RunSQL(ctx, dbURL, checkQuery)
-	if err != nil {
+	var exists bool
+	if err := f.db.QueryRowContext(ctx, checkQuery).Scan(&exists); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(exists) != "t" {
+	if !exists {
 		// Table doesn't exist, no migrations have been run
 		return nil, nil
 	}
 
-	output, err := f.exec.RunSQL(ctx, dbURL,
+	rows, err := f.db.QueryContext(ctx,
 		"SELECT version_id FROM goose_db_version WHERE is_applied ORDER BY version_id")
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	var versions []string
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			versions = append(versions, line)
+	for rows.Next() {
+		var version string
+		if err := rows.Scan(&version); err != nil {
+			return nil, err
+		}
+		version = strings.TrimSpace(version)
+		if version != "" {
+			versions = append(versions, version)
 		}
 	}
 
-	return versions, nil
+	return versions, rows.Err()
 }
 
-func (f *Flattener) dumpSchema(ctx context.Context, dbURL string) (string, error) {
-	output, err := f.exec.RunWithOutput(ctx, "pg_dump", dbURL,
-		"--schema-only",
-		"--no-owner",
-		"--exclude-table=public.goose_db_version",
-		"--exclude-table=public.goose_db_version_id_seq",
-		"--no-privileges",
-	)
+func (f *Flattener) dumpSchema(ctx context.Context) (string, error) {
+	// Use our custom schema dumper, excluding goose tables
+	excludeTables := []string{
+		"goose_db_version",
+		"public.goose_db_version",
+	}
+
+	schema, err := pgconn.DumpSchema(ctx, f.db, excludeTables)
 	if err != nil {
 		return "", err
 	}
 
-	// Clean up the schema dump
-	// Remove search_path config that can cause issues
-	// Remove CloudSQL specific commands
-	var cleanedLines []string
-	for _, line := range strings.Split(output, "\n") {
-		if strings.Contains(line, "set_config") && strings.Contains(line, "search_path") {
-			continue
-		}
-		if strings.HasPrefix(line, "\\restrict") || strings.HasPrefix(line, "\\unrestrict") {
-			continue
-		}
-		cleanedLines = append(cleanedLines, line)
-	}
-
-	return strings.Join(cleanedLines, "\n"), nil
+	return schema, nil
 }
 
 func (f *Flattener) writeInitialMigration(path, schema string) error {

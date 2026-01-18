@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/tmwinc/seedup/pkg/db"
-	"github.com/tmwinc/seedup/pkg/executor"
 )
 
 var adminURL string
@@ -56,8 +55,7 @@ func newDBDropCmd() *cobra.Command {
 				}
 			}
 
-			exec := executor.New(executor.WithVerbose(verbose))
-			m := db.New(exec)
+			m := db.New()
 
 			if err := m.Drop(context.Background(), dbURL, adminURL); err != nil {
 				return err
@@ -88,8 +86,7 @@ func newDBCreateCmd() *cobra.Command {
 				return err
 			}
 
-			exec := executor.New(executor.WithVerbose(verbose))
-			m := db.New(exec)
+			m := db.New()
 
 			if err := m.Create(context.Background(), dbURL, adminURL); err != nil {
 				return err
@@ -134,8 +131,7 @@ This is a destructive operation that will drop and recreate the database.`,
 				}
 			}
 
-			exec := executor.New(executor.WithVerbose(verbose))
-			m := db.New(exec)
+			m := db.New()
 
 			opts := db.SetupOptions{
 				DatabaseURL:   dbURL,

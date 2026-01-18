@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/tmwinc/seedup/pkg/executor"
 	"github.com/tmwinc/seedup/pkg/seed"
 )
 
@@ -34,7 +33,7 @@ func newSeedApplyCmd() *cobra.Command {
 		Long: `Apply seed data to the database.
 
 The <name> argument specifies which seed set to apply (e.g., "dev", "staging").
-This loads CSV files from seed/<name>/, runs migrations, and imports the data.
+This loads SQL files from seed/<name>/, runs migrations, and imports the data.
 
 Example:
   seedup seed apply dev -d postgres://user:pass@localhost/mydb`,
@@ -47,8 +46,7 @@ Example:
 				return fmt.Errorf("database URL required (use -d flag or DATABASE_URL env)")
 			}
 
-			exec := executor.New(executor.WithVerbose(verbose))
-			s := seed.New(exec)
+			s := seed.New()
 
 			// Seed data directory: ./seed/<name>/
 			dir := filepath.Join(getSeedDir(), name)
@@ -68,11 +66,11 @@ func newSeedCreateCmd() *cobra.Command {
 
 The <name> argument specifies the seed set name (e.g., "dev", "staging").
 This reads the query file at seed/<name>.sql, executes it against the database,
-and exports the results to CSV files in seed/<name>/.
+and exports the results to SQL files in seed/<name>/.
 
 The seed query file should contain SQL that populates temporary tables with the
 data you want to include in the seed. Each table in the database has a corresponding
-temp table named pg_temp."seed.<schema>.<table>" that you should INSERT INTO.
+temp table named "seed.<schema>.<table>" that you should INSERT INTO.
 
 Example:
   seedup seed create dev -d postgres://user:pass@localhost/production_db`,
@@ -85,8 +83,7 @@ Example:
 				return fmt.Errorf("database URL required (use -d flag or DATABASE_URL env)")
 			}
 
-			exec := executor.New(executor.WithVerbose(verbose))
-			s := seed.New(exec)
+			s := seed.New()
 
 			// Seed data directory: ./seed/<name>/
 			dir := filepath.Join(getSeedDir(), name)

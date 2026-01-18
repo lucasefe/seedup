@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tmwinc/seedup/pkg/executor"
-	"github.com/tmwinc/seedup/pkg/migrate"
 	"github.com/spf13/cobra"
+	"github.com/tmwinc/seedup/pkg/migrate"
+	"github.com/tmwinc/seedup/pkg/pgconn"
 )
 
 func newFlattenCmd() *cobra.Command {
@@ -26,11 +26,16 @@ This is useful for:
 				return fmt.Errorf("database URL required (use -d flag or DATABASE_URL env)")
 			}
 
-			exec := executor.New(executor.WithVerbose(verbose))
-			f := migrate.NewFlattener(exec)
+			db, err := pgconn.Open(dbURL)
+			if err != nil {
+				return fmt.Errorf("opening database: %w", err)
+			}
+			defer db.Close()
+
+			f := migrate.NewFlattener(db)
 
 			fmt.Println("Flattening migrations...")
-			if err := f.Flatten(context.Background(), dbURL, getMigrationsDir()); err != nil {
+			if err := f.Flatten(context.Background(), getMigrationsDir()); err != nil {
 				return err
 			}
 

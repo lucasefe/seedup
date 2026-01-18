@@ -44,12 +44,14 @@ package seedup
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/tmwinc/seedup/pkg/check"
 	"github.com/tmwinc/seedup/pkg/db"
 	"github.com/tmwinc/seedup/pkg/dbml"
 	"github.com/tmwinc/seedup/pkg/executor"
 	"github.com/tmwinc/seedup/pkg/migrate"
+	"github.com/tmwinc/seedup/pkg/pgconn"
 	"github.com/tmwinc/seedup/pkg/seed"
 )
 
@@ -173,32 +175,30 @@ func GenerateDBML(ctx context.Context, dbURL string, opts DBMLOptions) (string, 
 	})
 }
 
-// SeedApply applies seed data from CSV files to the database.
+// SeedApply applies seed data from SQL files to the database.
 // It runs the initial migration, loads seed data, then runs remaining migrations.
 //
-// The seedDir should contain CSV files named after the tables they populate.
+// The seedDir should contain SQL files named after the tables they populate.
 //
 // Example:
 //
 //	err := seedup.SeedApply(ctx, dbURL, "./migrations", "./seed/dev")
 func SeedApply(ctx context.Context, dbURL, migrationsDir, seedDir string) error {
-	exec := executor.New()
-	s := seed.New(exec)
+	s := seed.New()
 	return s.Apply(ctx, dbURL, migrationsDir, seedDir)
 }
 
 // SeedCreate creates seed data from an existing database.
-// It reads a query file, executes it, and exports results to CSV files.
+// It reads a query file, executes it, and exports results to SQL files.
 //
 // The queryFile should contain SQL that populates temporary tables.
-// Results are saved to seedDir as CSV files.
+// Results are saved to seedDir as SQL files with INSERT statements.
 //
 // Example:
 //
 //	err := seedup.SeedCreate(ctx, dbURL, "./migrations", "./seed/dev", "./seed/dev.sql", seedup.SeedCreateOptions{})
 func SeedCreate(ctx context.Context, dbURL, migrationsDir, seedDir, queryFile string, opts SeedCreateOptions) error {
-	exec := executor.New()
-	s := seed.New(exec)
+	s := seed.New()
 	return s.Create(ctx, dbURL, migrationsDir, seedDir, queryFile, seed.CreateOptions{
 		DryRun: opts.DryRun,
 	})
@@ -211,8 +211,7 @@ func SeedCreate(ctx context.Context, dbURL, migrationsDir, seedDir, queryFile st
 //
 //	err := seedup.DBCreate(ctx, "postgres://user:pass@localhost/mydb", seedup.DBOptions{})
 func DBCreate(ctx context.Context, dbURL string, opts DBOptions) error {
-	exec := executor.New()
-	m := db.New(exec)
+	m := db.New()
 	return m.Create(ctx, dbURL, opts.AdminURL)
 }
 
@@ -223,8 +222,7 @@ func DBCreate(ctx context.Context, dbURL string, opts DBOptions) error {
 //
 //	err := seedup.DBDrop(ctx, "postgres://user:pass@localhost/mydb", seedup.DBOptions{})
 func DBDrop(ctx context.Context, dbURL string, opts DBOptions) error {
-	exec := executor.New()
-	m := db.New(exec)
+	m := db.New()
 	return m.Drop(ctx, dbURL, opts.AdminURL)
 }
 
@@ -242,8 +240,7 @@ func DBDrop(ctx context.Context, dbURL string, opts DBOptions) error {
 //	    SeedName:      "dev",
 //	})
 func DBSetup(ctx context.Context, opts DBSetupOptions) error {
-	exec := executor.New()
-	m := db.New(exec)
+	m := db.New()
 	return m.Setup(ctx, db.SetupOptions{
 		DatabaseURL:   opts.DatabaseURL,
 		AdminURL:      opts.AdminURL,
@@ -266,9 +263,14 @@ func DBSetup(ctx context.Context, opts DBSetupOptions) error {
 //
 //	err := seedup.Flatten(ctx, dbURL, "./migrations")
 func Flatten(ctx context.Context, dbURL, migrationsDir string) error {
-	exec := executor.New()
-	f := migrate.NewFlattener(exec)
-	return f.Flatten(ctx, dbURL, migrationsDir)
+	conn, err := pgconn.Open(dbURL)
+	if err != nil {
+		return fmt.Errorf("opening database: %w", err)
+	}
+	defer conn.Close()
+
+	f := migrate.NewFlattener(conn)
+	return f.Flatten(ctx, migrationsDir)
 }
 
 // Check validates that new migrations have the latest timestamps.

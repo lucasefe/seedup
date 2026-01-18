@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tmwinc/seedup/pkg/pgconn"
 )
 
 // Drop drops the database specified in the DATABASE_URL
@@ -19,8 +21,14 @@ func (m *Manager) Drop(ctx context.Context, dbURL, adminURL string) error {
 		adminURL = cfg.AdminURL()
 	}
 
+	db, err := pgconn.Open(adminURL)
+	if err != nil {
+		return fmt.Errorf("connecting to admin database: %w", err)
+	}
+	defer db.Close()
+
 	query := fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", quoteIdent(cfg.Database))
-	_, err = m.exec.RunSQL(ctx, adminURL, query)
+	_, err = db.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("dropping database: %w", err)
 	}
@@ -39,19 +47,22 @@ func (m *Manager) Create(ctx context.Context, dbURL, adminURL string) error {
 		adminURL = cfg.AdminURL()
 	}
 
-	// Check if database already exists
-	checkQuery := fmt.Sprintf("SELECT 1 FROM pg_database WHERE datname = '%s'", cfg.Database)
-	result, err := m.exec.RunSQL(ctx, adminURL, checkQuery)
+	db, err := pgconn.Open(adminURL)
 	if err != nil {
-		return fmt.Errorf("checking database existence: %w", err)
+		return fmt.Errorf("connecting to admin database: %w", err)
 	}
+	defer db.Close()
 
-	if strings.TrimSpace(result) == "1" {
+	// Check if database already exists
+	checkQuery := "SELECT 1 FROM pg_database WHERE datname = $1"
+	var exists int
+	err = db.QueryRowContext(ctx, checkQuery, cfg.Database).Scan(&exists)
+	if err == nil && exists == 1 {
 		return nil // Database already exists
 	}
 
 	query := fmt.Sprintf("CREATE DATABASE %s", quoteIdent(cfg.Database))
-	_, err = m.exec.RunSQL(ctx, adminURL, query)
+	_, err = db.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("creating database: %w", err)
 	}
@@ -70,19 +81,23 @@ func (m *Manager) CreateUser(ctx context.Context, dbURL, adminURL string) error 
 		adminURL = cfg.AdminURL()
 	}
 
-	// Check if user already exists
-	checkQuery := fmt.Sprintf("SELECT 1 FROM pg_roles WHERE rolname = '%s'", cfg.User)
-	result, err := m.exec.RunSQL(ctx, adminURL, checkQuery)
+	db, err := pgconn.Open(adminURL)
 	if err != nil {
-		return fmt.Errorf("checking user existence: %w", err)
+		return fmt.Errorf("connecting to admin database: %w", err)
 	}
+	defer db.Close()
 
-	if strings.TrimSpace(result) == "1" {
+	// Check if user already exists
+	checkQuery := "SELECT 1 FROM pg_roles WHERE rolname = $1"
+	var exists int
+	err = db.QueryRowContext(ctx, checkQuery, cfg.User).Scan(&exists)
+	if err == nil && exists == 1 {
 		return nil // User already exists
 	}
 
-	query := fmt.Sprintf("CREATE USER %s WITH PASSWORD '%s'", quoteIdent(cfg.User), cfg.Password)
-	_, err = m.exec.RunSQL(ctx, adminURL, query)
+	// Note: We can't use parameterized queries for CREATE USER, but we validate the username
+	query := fmt.Sprintf("CREATE USER %s WITH PASSWORD '%s'", quoteIdent(cfg.User), escapePassword(cfg.Password))
+	_, err = db.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("creating user: %w", err)
 	}
@@ -101,17 +116,23 @@ func (m *Manager) SetupPermissions(ctx context.Context, dbURL, adminURL string) 
 		adminURL = cfg.AdminURL()
 	}
 
+	db, err := pgconn.Open(adminURL)
+	if err != nil {
+		return fmt.Errorf("connecting to admin database: %w", err)
+	}
+	defer db.Close()
+
 	// Grant all on the database
 	grantDBQuery := fmt.Sprintf("GRANT ALL PRIVILEGES ON DATABASE %s TO %s",
 		quoteIdent(cfg.Database), quoteIdent(cfg.User))
-	if _, err := m.exec.RunSQL(ctx, adminURL, grantDBQuery); err != nil {
+	if _, err := db.ExecContext(ctx, grantDBQuery); err != nil {
 		return fmt.Errorf("granting database privileges: %w", err)
 	}
 
 	// Make user owner of the database
 	ownerQuery := fmt.Sprintf("ALTER DATABASE %s OWNER TO %s",
 		quoteIdent(cfg.Database), quoteIdent(cfg.User))
-	if _, err := m.exec.RunSQL(ctx, adminURL, ownerQuery); err != nil {
+	if _, err := db.ExecContext(ctx, ownerQuery); err != nil {
 		return fmt.Errorf("setting database owner: %w", err)
 	}
 
@@ -169,14 +190,16 @@ func (m *Manager) Setup(ctx context.Context, opts SetupOptions) error {
 	if !opts.SkipSeed && opts.SeedName != "" {
 		seedDir := filepath.Join(opts.SeedDir, opts.SeedName)
 		if _, err := os.Stat(seedDir); err == nil {
+			// Check for SQL files (new format) or CSV files (legacy format)
+			sqlFiles, _ := filepath.Glob(filepath.Join(seedDir, "*.sql"))
 			csvFiles, _ := filepath.Glob(filepath.Join(seedDir, "*.csv"))
-			if len(csvFiles) > 0 {
+			if len(sqlFiles) > 0 || len(csvFiles) > 0 {
 				fmt.Printf("Applying seeds from '%s'...\n", seedDir)
 				if err := m.seeder.Apply(ctx, opts.DatabaseURL, opts.MigrationsDir, seedDir); err != nil {
 					return fmt.Errorf("applying seeds: %w", err)
 				}
 			} else {
-				fmt.Printf("No seed CSV files found in '%s', skipping seeds\n", seedDir)
+				fmt.Printf("No seed files found in '%s', skipping seeds\n", seedDir)
 			}
 		} else {
 			fmt.Printf("Seed directory '%s' not found, skipping seeds\n", seedDir)
@@ -191,4 +214,9 @@ func (m *Manager) Setup(ctx context.Context, opts SetupOptions) error {
 // quoteIdent quotes a PostgreSQL identifier to prevent SQL injection
 func quoteIdent(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
+
+// escapePassword escapes single quotes in passwords for SQL
+func escapePassword(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
 }

@@ -1,16 +1,18 @@
 package seed
 
 import (
-	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/tmwinc/seedup/pkg/pgconn"
 )
 
-// Apply seeds the database with data from CSV files
+// Apply seeds the database with data from SQL files
 // It runs the initial migration, loads seed data, then runs remaining migrations
 func (s *Seeder) Apply(ctx context.Context, dbURL, migrationsDir, seedDir string) error {
 	// Run the initial migration (schema at point of creating seed)
@@ -36,72 +38,94 @@ func (s *Seeder) Apply(ctx context.Context, dbURL, migrationsDir, seedDir string
 }
 
 func (s *Seeder) loadSeedData(ctx context.Context, dbURL, seedDir string) error {
-	csvFiles, err := filepath.Glob(filepath.Join(seedDir, "*.csv"))
+	// Open database connection
+	db, err := pgconn.Open(dbURL)
 	if err != nil {
-		return fmt.Errorf("finding CSV files: %w", err)
+		return fmt.Errorf("opening database: %w", err)
+	}
+	defer db.Close()
+
+	// Find SQL files (new format)
+	sqlFiles, err := filepath.Glob(filepath.Join(seedDir, "*.sql"))
+	if err != nil {
+		return fmt.Errorf("finding SQL files: %w", err)
 	}
 
-	if len(csvFiles) == 0 {
-		fmt.Println("No CSV files found in seed directory")
+	// Also check for legacy CSV files
+	csvFiles, _ := filepath.Glob(filepath.Join(seedDir, "*.csv"))
+	if len(csvFiles) > 0 && len(sqlFiles) == 0 {
+		return fmt.Errorf("found CSV files but no SQL files in seed directory. Please run 'seed create' to regenerate seed files in the new SQL format")
+	}
+
+	if len(sqlFiles) == 0 {
+		fmt.Println("No SQL files found in seed directory")
 		return nil
 	}
 
-	// Build map of CSV file by table name
-	csvByTable := make(map[string]string)
+	// Build map of SQL file by table name
+	sqlByTable := make(map[string]string)
 	var tables []string
-	for _, csv := range csvFiles {
-		table := strings.TrimSuffix(filepath.Base(csv), ".csv")
-		csvByTable[table] = csv
+	for _, sqlFile := range sqlFiles {
+		table := strings.TrimSuffix(filepath.Base(sqlFile), ".sql")
+		sqlByTable[table] = sqlFile
 		tables = append(tables, table)
 	}
 
 	// Get the correct import order based on foreign key dependencies
-	orderedTables, err := s.getImportOrder(ctx, dbURL, tables)
+	orderedTables, err := s.getImportOrder(ctx, db, tables)
 	if err != nil {
 		return fmt.Errorf("determining import order: %w", err)
 	}
 
-	var script bytes.Buffer
-
-	// Begin transaction
-	script.WriteString("BEGIN;\n")
+	// Start transaction for atomic seed loading
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("starting transaction: %w", err)
+	}
+	defer tx.Rollback()
 
 	// Truncate all tables in reverse order (respects FK constraints)
 	for i := len(orderedTables) - 1; i >= 0; i-- {
 		table := orderedTables[i]
-		script.WriteString(fmt.Sprintf("TRUNCATE TABLE %s CASCADE;\n", table))
-	}
-
-	// Generate COPY commands in dependency order
-	for _, table := range orderedTables {
-		csv := csvByTable[table]
-		absPath, err := filepath.Abs(csv)
-		if err != nil {
-			return fmt.Errorf("getting absolute path for %s: %w", csv, err)
+		truncateSQL := fmt.Sprintf("TRUNCATE TABLE %s CASCADE", table)
+		if _, err := tx.ExecContext(ctx, truncateSQL); err != nil {
+			return fmt.Errorf("truncating table %s: %w", table, err)
 		}
-		script.WriteString(fmt.Sprintf("\\COPY %s FROM '%s' WITH CSV HEADER;\n", table, absPath))
 	}
 
-	script.WriteString("COMMIT;\n")
+	// Execute SQL files in dependency order
+	for _, table := range orderedTables {
+		sqlFile := sqlByTable[table]
+		content, err := os.ReadFile(sqlFile)
+		if err != nil {
+			return fmt.Errorf("reading SQL file %s: %w", sqlFile, err)
+		}
 
-	// Write script to temp file and execute
-	tmpFile, err := os.CreateTemp("", "seed-*.sql")
-	if err != nil {
-		return fmt.Errorf("creating temp file: %w", err)
+		// Skip empty files or comment-only files
+		contentStr := strings.TrimSpace(string(content))
+		if contentStr == "" || strings.HasPrefix(contentStr, "-- No data") {
+			fmt.Printf("Skipping empty table %s\n", table)
+			continue
+		}
+
+		// Execute the INSERT statements
+		if _, err := tx.ExecContext(ctx, string(content)); err != nil {
+			return fmt.Errorf("executing SQL for table %s: %w", table, err)
+		}
+		fmt.Printf("Loaded data for %s\n", table)
 	}
-	defer os.Remove(tmpFile.Name())
 
-	if _, err := tmpFile.WriteString(script.String()); err != nil {
-		return fmt.Errorf("writing seed script: %w", err)
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing transaction: %w", err)
 	}
-	tmpFile.Close()
 
-	return s.exec.RunSQLFile(ctx, dbURL, tmpFile.Name())
+	return nil
 }
 
 // getImportOrder returns tables sorted by foreign key dependencies
 // Tables with no dependencies come first, tables that depend on others come later
-func (s *Seeder) getImportOrder(ctx context.Context, dbURL string, tables []string) ([]string, error) {
+func (s *Seeder) getImportOrder(ctx context.Context, db *sql.DB, tables []string) ([]string, error) {
 	if len(tables) == 0 {
 		return nil, nil
 	}
@@ -119,11 +143,12 @@ func (s *Seeder) getImportOrder(ctx context.Context, dbURL string, tables []stri
 		WHERE tc.constraint_type = 'FOREIGN KEY'
 	`
 
-	output, err := s.exec.RunSQL(ctx, dbURL, query)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		// If we can't get dependencies, just return tables in original order
 		return tables, nil
 	}
+	defer rows.Close()
 
 	// Build dependency graph
 	deps := make(map[string][]string) // table -> tables it depends on
@@ -131,15 +156,11 @@ func (s *Seeder) getImportOrder(ctx context.Context, dbURL string, tables []stri
 		deps[table] = nil
 	}
 
-	// Parse the output (format: "dependent | referenced" per line)
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	for _, line := range lines {
-		parts := strings.Split(line, "|")
-		if len(parts) != 2 {
+	for rows.Next() {
+		var dependent, referenced string
+		if err := rows.Scan(&dependent, &referenced); err != nil {
 			continue
 		}
-		dependent := strings.TrimSpace(parts[0])
-		referenced := strings.TrimSpace(parts[1])
 
 		// Only consider dependencies between tables we're importing
 		if _, ok := deps[dependent]; ok {
@@ -149,19 +170,18 @@ func (s *Seeder) getImportOrder(ctx context.Context, dbURL string, tables []stri
 		}
 	}
 
+	if err := rows.Err(); err != nil {
+		return tables, nil
+	}
+
 	// Topological sort using Kahn's algorithm
 	// Count incoming edges for each table
 	inDegree := make(map[string]int)
 	for _, table := range tables {
 		inDegree[table] = 0
 	}
-	for _, dependencies := range deps {
-		for _, dep := range dependencies {
-			inDegree[dep]++ // This is backwards - we want tables with no deps first
-		}
-	}
 
-	// Actually, let's recalculate: inDegree should be count of tables this table depends on
+	// Actually, let's calculate: inDegree should be count of tables this table depends on
 	for table := range inDegree {
 		inDegree[table] = len(deps[table])
 	}
