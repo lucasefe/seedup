@@ -95,7 +95,7 @@ Example:
 				DryRun: dryRun,
 			}
 
-			return s.Create(context.Background(), dbURL, getMigrationsDir(), dir, queryFile, opts)
+			return s.Create(context.Background(), dbURL, dir, queryFile, opts)
 		},
 	}
 

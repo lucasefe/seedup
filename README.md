@@ -116,7 +116,7 @@ seedup.SeedApply(ctx, dbURL, migrationsDir, seedDir)
 // Create seed data from an existing database
 // seedDir is the seed set directory (e.g., "./seed/dev")
 // queryFile is the dump.sql file (e.g., "./seed/dev/dump.sql")
-seedup.SeedCreate(ctx, dbURL, migrationsDir, seedDir, queryFile, seedup.SeedCreateOptions{
+seedup.SeedCreate(ctx, dbURL, seedDir, queryFile, seedup.SeedCreateOptions{
     DryRun: false,
 })
 ```

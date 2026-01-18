@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/lucasefe/seedup/pkg/migrate"
 	"github.com/lucasefe/seedup/pkg/pgconn"
 )
 
@@ -19,8 +18,8 @@ type CreateOptions struct {
 }
 
 // Create creates seed data from a database
-// It dumps the schema, flattens migrations, and exports seed data to a single insert.sql file
-func (s *Seeder) Create(ctx context.Context, dbURL, migrationsDir, seedDir, queryFile string, opts CreateOptions) error {
+// It exports seed data to a single load.sql file
+func (s *Seeder) Create(ctx context.Context, dbURL, seedDir, queryFile string, opts CreateOptions) error {
 	// Ensure seed directory exists
 	if err := os.MkdirAll(seedDir, 0755); err != nil {
 		return fmt.Errorf("creating seed directory: %w", err)
@@ -72,12 +71,6 @@ func (s *Seeder) Create(ctx context.Context, dbURL, migrationsDir, seedDir, quer
 		// Remove the generated file in dry run mode
 		os.Remove(outputFile)
 		return nil
-	}
-
-	// Flatten migrations
-	flattener := migrate.NewFlattener(db)
-	if err := flattener.Flatten(ctx, migrationsDir); err != nil {
-		return fmt.Errorf("flattening migrations: %w", err)
 	}
 
 	// Clean old per-table seed files (legacy format)

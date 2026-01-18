@@ -36,6 +36,11 @@ func (f *Flattener) Flatten(ctx context.Context, migrationsDir string) error {
 		return nil
 	}
 
+	if len(versions) == 1 {
+		fmt.Println("Only one migration found, nothing to flatten")
+		return nil
+	}
+
 	// Get the latest version for the new initial migration
 	latestVersion := versions[len(versions)-1]
 

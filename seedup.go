@@ -196,10 +196,10 @@ func SeedApply(ctx context.Context, dbURL, migrationsDir, seedDir string) error 
 //
 // Example:
 //
-//	err := seedup.SeedCreate(ctx, dbURL, "./migrations", "./seed/dev", "./seed/dev/dump.sql", seedup.SeedCreateOptions{})
-func SeedCreate(ctx context.Context, dbURL, migrationsDir, seedDir, queryFile string, opts SeedCreateOptions) error {
+//	err := seedup.SeedCreate(ctx, dbURL, "./seed/dev", "./seed/dev/dump.sql", seedup.SeedCreateOptions{})
+func SeedCreate(ctx context.Context, dbURL, seedDir, queryFile string, opts SeedCreateOptions) error {
 	s := seed.New()
-	return s.Create(ctx, dbURL, migrationsDir, seedDir, queryFile, seed.CreateOptions{
+	return s.Create(ctx, dbURL, seedDir, queryFile, seed.CreateOptions{
 		DryRun: opts.DryRun,
 	})
 }

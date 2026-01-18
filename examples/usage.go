@@ -112,7 +112,7 @@ func main() {
 	fmt.Printf("   Dump file (input):  %s\n", seedDumpFile)
 	fmt.Printf("   Load file (generated): %s\n", seedLoadFile)
 	fmt.Println()
-	fmt.Println("   To create seeds: seedup.SeedCreate(ctx, dbURL, migrationsDir, seedSetDir, seedDumpFile, opts)")
+	fmt.Println("   To create seeds: seedup.SeedCreate(ctx, dbURL, seedSetDir, seedDumpFile, opts)")
 	fmt.Println("   To apply seeds:  seedup.SeedApply(ctx, dbURL, migrationsDir, seedSetDir)")
 	fmt.Println()
 
