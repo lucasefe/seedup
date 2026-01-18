@@ -175,10 +175,10 @@ func GenerateDBML(ctx context.Context, dbURL string, opts DBMLOptions) (string, 
 	})
 }
 
-// SeedApply applies seed data from SQL files to the database.
+// SeedApply applies seed data from a load.sql file to the database.
 // It runs the initial migration, loads seed data, then runs remaining migrations.
 //
-// The seedDir should contain SQL files named after the tables they populate.
+// The seedDir should contain a load.sql file with batched INSERT statements.
 //
 // Example:
 //
@@ -189,14 +189,14 @@ func SeedApply(ctx context.Context, dbURL, migrationsDir, seedDir string) error 
 }
 
 // SeedCreate creates seed data from an existing database.
-// It reads a query file, executes it, and exports results to SQL files.
+// It reads a query file, executes it, and exports results to a single load.sql file.
 //
-// The queryFile should contain SQL that populates temporary tables.
-// Results are saved to seedDir as SQL files with INSERT statements.
+// The queryFile (dump.sql) should contain SQL that populates temporary tables.
+// Results are saved to seedDir/load.sql as batched INSERT statements.
 //
 // Example:
 //
-//	err := seedup.SeedCreate(ctx, dbURL, "./migrations", "./seed/dev", "./seed/dev.sql", seedup.SeedCreateOptions{})
+//	err := seedup.SeedCreate(ctx, dbURL, "./migrations", "./seed/dev", "./seed/dev/dump.sql", seedup.SeedCreateOptions{})
 func SeedCreate(ctx context.Context, dbURL, migrationsDir, seedDir, queryFile string, opts SeedCreateOptions) error {
 	s := seed.New()
 	return s.Create(ctx, dbURL, migrationsDir, seedDir, queryFile, seed.CreateOptions{

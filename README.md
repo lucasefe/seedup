@@ -20,7 +20,6 @@ go get github.com/tmwinc/seedup
 
 ### System Requirements
 
-- `psql` / `pg_dump` - PostgreSQL client tools (install via `brew install postgresql` or your package manager)
 - `git` - For the check command (CI validation)
 
 ## Quick Start
@@ -111,9 +110,12 @@ content, err := seedup.GenerateDBML(ctx, dbURL, seedup.DBMLOptions{
 
 ```go
 // Apply seed data to the database
+// seedDir is the seed set directory containing load.sql (e.g., "./seed/dev")
 seedup.SeedApply(ctx, dbURL, migrationsDir, seedDir)
 
 // Create seed data from an existing database
+// seedDir is the seed set directory (e.g., "./seed/dev")
+// queryFile is the dump.sql file (e.g., "./seed/dev/dump.sql")
 seedup.SeedCreate(ctx, dbURL, migrationsDir, seedDir, queryFile, seedup.SeedCreateOptions{
     DryRun: false,
 })
@@ -158,10 +160,9 @@ your-project/
 ├── migrations/           # Migration files go here
 │   └── 20240101120000_initial.sql
 ├── seed/                 # Seed data root directory
-│   ├── dev.sql           # SQL to select seed data for "dev" seed set
-│   └── dev/              # Seed data CSV files for "dev" seed set
-│       ├── public.users.csv
-│       └── public.accounts.csv
+│   └── dev/              # Seed set directory for "dev"
+│       ├── dump.sql      # SQL query to extract seed data (INPUT)
+│       └── load.sql      # Generated INSERT statements (OUTPUT)
 ├── Makefile              # Optional: wrap seedup commands
 └── ...
 ```
@@ -288,7 +289,7 @@ seedup seed apply dev -d "$DATABASE_URL"
 
 The apply process:
 1. Runs the initial migration (first migration file)
-2. Loads all CSV files from `seed/<name>/`
+2. Loads seed data from `seed/<name>/load.sql`
 3. Runs remaining migrations
 
 ### seed create
@@ -304,9 +305,9 @@ seedup seed create dev -d "$PROD_DATABASE_URL" --dry-run
 ```
 
 The create process:
-1. Reads the query file at `seed/<name>.sql`
+1. Reads the query file at `seed/<name>/dump.sql`
 2. Executes queries against the source database
-3. Exports results to CSV files in `seed/<name>/`
+3. Exports results to `seed/<name>/load.sql` as batched INSERT statements
 4. Flattens all migrations into a single initial migration
 
 ### flatten
@@ -412,15 +413,15 @@ DROP TABLE users;
 
 ## Writing Seed Query Files
 
-The seed query file (e.g., `seed/dev.sql`) defines which data to extract from your source database. When you run `seedup seed create dev`, it:
+The seed query file (e.g., `seed/dev/dump.sql`) defines which data to extract from your source database. When you run `seedup seed create dev`, it:
 
 1. Creates temporary tables for each table in the database
 2. Runs your query file to populate those temp tables
-3. Exports the temp tables to CSV files in `seed/dev/`
+3. Exports the temp tables to `seed/dev/load.sql` as batched INSERT statements
 
 The query file should contain INSERT statements that select data FROM your real tables INTO the corresponding temp tables. Each temp table is named `pg_temp."seed.<schema>.<table>"`.
 
-Example `seed/dev.sql`:
+Example `seed/dev/dump.sql`:
 
 ```sql
 -- Select recent users for development
