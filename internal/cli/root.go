@@ -15,8 +15,9 @@ var (
 
 func NewRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "seedup",
-		Short: "Database migration and seed management tool",
+		Use:          "seedup",
+		Short:        "Database migration and seed management tool",
+		SilenceUsage: true,
 		Long: `seedup is a CLI tool for managing database migrations and seed data.
 It wraps goose for migrations and provides utilities for creating and applying seed data.
 
