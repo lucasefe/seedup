@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/lib/pq"
 	"github.com/lucasefe/seedup/pkg/pgconn"
 )
 
@@ -119,7 +120,7 @@ func (s *Seeder) getTables(ctx context.Context, db *sql.DB, opts CreateOptions) 
 	var args []any
 	if len(schemas) > 0 {
 		query += " AND schemaname = ANY($1)"
-		args = append(args, schemas)
+		args = append(args, pq.Array(schemas))
 	}
 	query += " ORDER BY schemaname, tablename"
 
