@@ -74,7 +74,39 @@ func main() {
 
 ## Go Library API
 
-The seedup package exposes a clean public API for programmatic use:
+The seedup package exposes a clean public API for programmatic use.
+
+### CLI Passthrough (Embedding in Other Binaries)
+
+Use `Run` or `RunArgs` to execute seedup commands programmatically with the same interface as the CLI:
+
+```go
+package main
+
+import (
+    "log"
+    "os"
+
+    "github.com/lucasefe/seedup"
+)
+
+func main() {
+    // Forward CLI args: otherbinary seedup <args...>
+    if len(os.Args) > 1 && os.Args[1] == "seedup" {
+        if err := seedup.RunArgs(os.Args[2:]...); err != nil {
+            log.Fatal(err)
+        }
+        return
+    }
+
+    // Or run commands directly
+    if err := seedup.Run("migrate up -d postgres://localhost/mydb"); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+Environment variables (`DATABASE_URL`, `MIGRATIONS_DIR`, `SEED_DIR`) are read from the current process environment.
 
 ### Migration Functions
 

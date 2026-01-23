@@ -45,7 +45,9 @@ package seedup
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/lucasefe/seedup/internal/cli"
 	"github.com/lucasefe/seedup/pkg/check"
 	"github.com/lucasefe/seedup/pkg/db"
 	"github.com/lucasefe/seedup/pkg/dbml"
@@ -292,4 +294,29 @@ func Check(ctx context.Context, migrationsDir, baseBranch string) error {
 	exec := executor.New()
 	c := check.New(exec)
 	return c.Check(ctx, migrationsDir, baseBranch)
+}
+
+// Run executes a seedup CLI command from a command string.
+// Environment variables (DATABASE_URL, etc.) are read from os.Getenv.
+//
+// Example:
+//
+//	err := seedup.Run("migrate up -d postgres://localhost/mydb")
+func Run(command string) error {
+	args := strings.Fields(command)
+	return RunArgs(args...)
+}
+
+// RunArgs executes a seedup CLI command with pre-split arguments.
+// This is useful for embedding seedup in other binaries.
+// Environment variables (DATABASE_URL, etc.) are read from os.Getenv.
+//
+// Example:
+//
+//	// otherbinary seedup seed create dev
+//	err := seedup.RunArgs(os.Args[2:]...)
+func RunArgs(args ...string) error {
+	cmd := cli.NewRootCmd()
+	cmd.SetArgs(args)
+	return cmd.Execute()
 }
