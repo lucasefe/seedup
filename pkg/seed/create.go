@@ -15,6 +15,11 @@ import (
 // CreateOptions configures the seed creation process
 type CreateOptions struct {
 	DryRun bool
+	// Schemas specifies which database schemas to include.
+	// If empty and AllSchemas is false, defaults to "public".
+	Schemas []string
+	// AllSchemas includes all non-system schemas when true.
+	AllSchemas bool
 }
 
 // Create creates seed data from a database
@@ -33,7 +38,7 @@ func (s *Seeder) Create(ctx context.Context, dbURL, seedDir, queryFile string, o
 	defer db.Close()
 
 	// Get all tables in the database
-	tables, err := s.getTables(ctx, db)
+	tables, err := s.getTables(ctx, db, opts)
 	if err != nil {
 		return fmt.Errorf("getting tables: %w", err)
 	}
@@ -92,15 +97,33 @@ type tableInfo struct {
 	Name   string
 }
 
-func (s *Seeder) getTables(ctx context.Context, db *sql.DB) ([]tableInfo, error) {
-	rows, err := db.QueryContext(ctx, `
+func (s *Seeder) getTables(ctx context.Context, db *sql.DB, opts CreateOptions) ([]tableInfo, error) {
+	// Determine which schemas to include
+	schemas := opts.Schemas
+	if opts.AllSchemas {
+		// All non-system schemas (current behavior)
+		schemas = nil
+	} else if len(schemas) == 0 {
+		// Default: public only
+		schemas = []string{"public"}
+	}
+
+	// Build query with schema filter
+	query := `
 		SELECT schemaname, tablename
 		FROM pg_catalog.pg_tables
 		WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
 		AND schemaname NOT LIKE 'pg_temp%'
 		AND tablename <> 'goose_db_version'
-		ORDER BY schemaname, tablename
-	`)
+	`
+	var args []any
+	if len(schemas) > 0 {
+		query += " AND schemaname = ANY($1)"
+		args = append(args, schemas)
+	}
+	query += " ORDER BY schemaname, tablename"
+
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("querying tables: %w", err)
 	}

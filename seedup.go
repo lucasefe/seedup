@@ -72,6 +72,11 @@ type DBMLOptions struct {
 type SeedCreateOptions struct {
 	// DryRun previews the operation without making changes.
 	DryRun bool
+	// Schemas specifies which database schemas to include.
+	// If empty and AllSchemas is false, defaults to "public".
+	Schemas []string
+	// AllSchemas includes all non-system schemas when true.
+	AllSchemas bool
 }
 
 // DBOptions configures database operations.
@@ -200,7 +205,9 @@ func SeedApply(ctx context.Context, dbURL, migrationsDir, seedDir string) error 
 func SeedCreate(ctx context.Context, dbURL, seedDir, queryFile string, opts SeedCreateOptions) error {
 	s := seed.New()
 	return s.Create(ctx, dbURL, seedDir, queryFile, seed.CreateOptions{
-		DryRun: opts.DryRun,
+		DryRun:     opts.DryRun,
+		Schemas:    opts.Schemas,
+		AllSchemas: opts.AllSchemas,
 	})
 }
 

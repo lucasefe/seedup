@@ -117,7 +117,9 @@ seedup.SeedApply(ctx, dbURL, migrationsDir, seedDir)
 // seedDir is the seed set directory (e.g., "./seed/dev")
 // queryFile is the dump.sql file (e.g., "./seed/dev/dump.sql")
 seedup.SeedCreate(ctx, dbURL, seedDir, queryFile, seedup.SeedCreateOptions{
-    DryRun: false,
+    DryRun:     false,
+    Schemas:    []string{"public", "custom"},  // Specific schemas (default: ["public"])
+    AllSchemas: false,                          // Include all non-system schemas
 })
 ```
 
@@ -297,8 +299,14 @@ The apply process:
 Create seed data from a database (typically production). This extracts data based on your query file.
 
 ```bash
-# Create "dev" seed set from production
+# Create "dev" seed set from production (public schema only, the default)
 seedup seed create dev -d "$PROD_DATABASE_URL"
+
+# Include specific schemas
+seedup seed create dev -d "$PROD_DATABASE_URL" --schemas public,custom
+
+# Include all non-system schemas
+seedup seed create dev -d "$PROD_DATABASE_URL" --all-schemas
 
 # Dry run (preview without modifying files)
 seedup seed create dev -d "$PROD_DATABASE_URL" --dry-run

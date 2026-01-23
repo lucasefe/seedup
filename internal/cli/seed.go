@@ -4,13 +4,16 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
-	"github.com/spf13/cobra"
 	"github.com/lucasefe/seedup/pkg/seed"
+	"github.com/spf13/cobra"
 )
 
 var (
-	dryRun bool
+	dryRun     bool
+	schemas    string
+	allSchemas bool
 )
 
 func newSeedCmd() *cobra.Command {
@@ -91,8 +94,21 @@ Example:
 			// Seed query file: ./seed/<name>/dump.sql
 			queryFile := filepath.Join(dir, "dump.sql")
 
+			// Parse schemas flag
+			var schemaList []string
+			if schemas != "" {
+				for _, s := range strings.Split(schemas, ",") {
+					s = strings.TrimSpace(s)
+					if s != "" {
+						schemaList = append(schemaList, s)
+					}
+				}
+			}
+
 			opts := seed.CreateOptions{
-				DryRun: dryRun,
+				DryRun:     dryRun,
+				Schemas:    schemaList,
+				AllSchemas: allSchemas,
 			}
 
 			return s.Create(context.Background(), dbURL, dir, queryFile, opts)
@@ -100,6 +116,8 @@ Example:
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview without modifying files")
+	cmd.Flags().StringVar(&schemas, "schemas", "", "Comma-separated list of schemas to include (default: public)")
+	cmd.Flags().BoolVarP(&allSchemas, "all-schemas", "a", false, "Include all non-system schemas")
 
 	return cmd
 }
