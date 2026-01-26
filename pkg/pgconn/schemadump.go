@@ -449,6 +449,7 @@ func dumpSequences(ctx context.Context, db *sql.DB, _ map[string]bool) ([]string
 		WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
 		  AND schemaname NOT LIKE 'pg_temp_%'
 		  AND schemaname NOT LIKE 'pg_toast_temp_%'
+		  AND sequencename NOT LIKE 'goose_%'
 		ORDER BY schemaname, sequencename
 	`
 
@@ -537,6 +538,7 @@ func dumpTables(ctx context.Context, db *sql.DB, excludeSet map[string]bool) ([]
 		WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
 		  AND schemaname NOT LIKE 'pg_temp_%'
 		  AND schemaname NOT LIKE 'pg_toast_temp_%'
+		  AND tablename NOT LIKE 'goose_%'
 		ORDER BY schemaname, tablename
 	`
 
