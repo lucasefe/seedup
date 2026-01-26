@@ -12,8 +12,9 @@ import (
 	"github.com/lucasefe/seedup/pkg/pgconn"
 )
 
-// Apply seeds the database with data from SQL files
-// It runs the initial migration, loads seed data, then runs remaining migrations
+// Apply seeds the database with data from SQL files.
+// It runs the initial migration (to establish the schema the seed was created against),
+// then loads seed data. Run 'migrate up' separately to apply remaining migrations.
 func (s *Seeder) Apply(ctx context.Context, dbURL, migrationsDir, seedDir string) error {
 	// Run the initial migration (schema at point of creating seed)
 	// Use UpByOneAllowNoop to handle the case where migrations are already applied
@@ -26,12 +27,6 @@ func (s *Seeder) Apply(ctx context.Context, dbURL, migrationsDir, seedDir string
 	fmt.Println("Seeding database...")
 	if err := s.loadSeedData(ctx, dbURL, seedDir); err != nil {
 		return fmt.Errorf("loading seed data: %w", err)
-	}
-
-	// Run all remaining migrations
-	fmt.Println("Running remaining migrations...")
-	if err := s.migrator.Up(ctx, dbURL, migrationsDir); err != nil {
-		return fmt.Errorf("running remaining migrations: %w", err)
 	}
 
 	return nil

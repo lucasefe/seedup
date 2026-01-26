@@ -33,7 +33,7 @@
 // Database management functions:
 //   - [DBCreate] - Create the database
 //   - [DBDrop] - Drop the database
-//   - [DBSetup] - Full database setup (drop, create, migrate, seed)
+//   - [DBSetup] - Database setup (drop, create user, create db, permissions)
 //
 // # Utility Functions
 //
@@ -88,7 +88,9 @@ type DBOptions struct {
 	AdminURL string
 }
 
-// DBSetupOptions configures the full database setup operation.
+// DBSetupOptions configures the database setup operation.
+// Setup only creates the database infrastructure (user, database, permissions).
+// Use [SeedApply] and [MigrateUp] separately to apply seeds and migrations.
 type DBSetupOptions struct {
 	// DatabaseURL is the target database connection URL.
 	DatabaseURL string
@@ -96,18 +98,6 @@ type DBSetupOptions struct {
 	// AdminURL is the connection URL for admin operations.
 	// If empty, defaults to the current system user connecting to the postgres database.
 	AdminURL string
-
-	// MigrationsDir is the path to the migrations directory.
-	MigrationsDir string
-
-	// SeedDir is the root seed directory (e.g., "./seed").
-	SeedDir string
-
-	// SeedName is the name of the seed set to apply (e.g., "dev" -> ./seed/dev/).
-	SeedName string
-
-	// SkipSeed skips applying seed data when true.
-	SkipSeed bool
 }
 
 // MigrateUp runs all pending migrations.
@@ -183,13 +173,16 @@ func GenerateDBML(ctx context.Context, dbURL string, opts DBMLOptions) (string, 
 }
 
 // SeedApply applies seed data from a load.sql file to the database.
-// It runs the initial migration, loads seed data, then runs remaining migrations.
+// It runs the initial migration (to establish the schema the seed was created against),
+// then loads seed data. Run [MigrateUp] separately to apply remaining migrations.
 //
 // The seedDir should contain a load.sql file with batched INSERT statements.
 //
 // Example:
 //
 //	err := seedup.SeedApply(ctx, dbURL, "./migrations", "./seed/dev")
+//	// Then run remaining migrations:
+//	err = seedup.MigrateUp(ctx, dbURL, "./migrations")
 func SeedApply(ctx context.Context, dbURL, migrationsDir, seedDir string) error {
 	s := seed.New()
 	return s.Apply(ctx, dbURL, migrationsDir, seedDir)
@@ -235,28 +228,28 @@ func DBDrop(ctx context.Context, dbURL string, opts DBOptions) error {
 	return m.Drop(ctx, dbURL, opts.AdminURL)
 }
 
-// DBSetup performs a full database setup: drop, create user, create db, set permissions,
-// run migrations, and optionally apply seeds.
+// DBSetup creates a database with user and permissions.
+// It creates the user, drops and recreates the database, and sets up permissions.
+//
+// This does NOT run migrations or apply seeds - use [SeedApply] and [MigrateUp] separately.
 //
 // This is a destructive operation that will drop and recreate the database.
 //
 // Example:
 //
+//	// Create database infrastructure
 //	err := seedup.DBSetup(ctx, seedup.DBSetupOptions{
-//	    DatabaseURL:   "postgres://user:pass@localhost/mydb",
-//	    MigrationsDir: "./migrations",
-//	    SeedDir:       "./seed",
-//	    SeedName:      "dev",
+//	    DatabaseURL: "postgres://user:pass@localhost/mydb",
 //	})
+//	// Apply seed (runs initial migration + loads seed data)
+//	err = seedup.SeedApply(ctx, dbURL, "./migrations", "./seed/dev")
+//	// Run remaining migrations
+//	err = seedup.MigrateUp(ctx, dbURL, "./migrations")
 func DBSetup(ctx context.Context, opts DBSetupOptions) error {
 	m := db.New()
 	return m.Setup(ctx, db.SetupOptions{
-		DatabaseURL:   opts.DatabaseURL,
-		AdminURL:      opts.AdminURL,
-		MigrationsDir: opts.MigrationsDir,
-		SeedDir:       opts.SeedDir,
-		SeedName:      opts.SeedName,
-		SkipSeed:      opts.SkipSeed,
+		DatabaseURL: opts.DatabaseURL,
+		AdminURL:    opts.AdminURL,
 	})
 }
 

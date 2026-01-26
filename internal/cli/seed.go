@@ -36,10 +36,13 @@ func newSeedApplyCmd() *cobra.Command {
 		Long: `Apply seed data to the database.
 
 The <name> argument specifies which seed set to apply (e.g., "dev", "staging").
-This loads seed/<name>/load.sql, runs migrations, and imports the data.
+This runs the initial migration and loads seed/<name>/load.sql.
+
+Run 'migrate up' separately after this command to apply remaining migrations.
 
 Example:
-  seedup seed apply dev -d postgres://user:pass@localhost/mydb`,
+  seedup seed apply dev -d postgres://user:pass@localhost/mydb
+  seedup migrate up  # run remaining migrations`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]

@@ -164,13 +164,15 @@ seedup.DBCreate(ctx, dbURL, seedup.DBOptions{AdminURL: ""})
 // Drop the database
 seedup.DBDrop(ctx, dbURL, seedup.DBOptions{AdminURL: ""})
 
-// Full database setup (drop, create, migrate, seed)
+// Database setup (drop, create user, create db, permissions)
+// Does NOT run migrations or apply seeds
 seedup.DBSetup(ctx, seedup.DBSetupOptions{
-    DatabaseURL:   dbURL,
-    MigrationsDir: "./migrations",
-    SeedDir:       "./seed",
-    SeedName:      "dev",
+    DatabaseURL: dbURL,
 })
+
+// Then apply seeds and migrations separately:
+seedup.SeedApply(ctx, dbURL, "./migrations", "./seed/dev")
+seedup.MigrateUp(ctx, dbURL, "./migrations")
 ```
 
 ### Utilities
@@ -240,6 +242,7 @@ migrate-create:
 
 seed:
 	seedup seed apply dev
+	seedup migrate up
 
 seed-create:
 	seedup seed create dev -d "$$PROD_DATABASE_URL"
@@ -248,7 +251,9 @@ seed-create:
 .PHONY: db-setup db-drop
 
 db-setup:
-	seedup db setup --force --seed-name dev
+	seedup db setup --force
+	seedup seed apply dev
+	seedup migrate up
 
 db-drop:
 	seedup db drop --force
@@ -319,12 +324,16 @@ seedup seed apply dev
 
 # Apply to a specific database
 seedup seed apply dev -d "$DATABASE_URL"
+
+# Then run remaining migrations separately
+seedup migrate up
 ```
 
 The apply process:
 1. Runs the initial migration (first migration file)
 2. Loads seed data from `seed/<name>/load.sql`
-3. Runs remaining migrations
+
+Note: `seed apply` does NOT run remaining migrations. Run `migrate up` separately after applying seeds.
 
 ### seed create
 
@@ -381,14 +390,11 @@ To fix:
 Database lifecycle management commands for setting up and tearing down databases.
 
 ```bash
-# Full setup: drop + create user + create db + permissions + migrate + seed
-seedup db setup --seed-name dev
+# Setup: create user + drop + create db + permissions (no migrations, no seeds)
+seedup db setup
 
 # Skip confirmation prompt (for CI/automation)
-seedup db setup --force --seed-name dev
-
-# Skip seeding (only create db and run migrations)
-seedup db setup --skip-seed
+seedup db setup --force
 
 # Drop the database
 seedup db drop
@@ -405,8 +411,8 @@ The `db setup` command performs:
 2. Drops the database if it exists
 3. Creates the database
 4. Sets up permissions (grants all privileges, sets owner)
-5. Runs all migrations
-6. Applies seed data from `seed/<name>/` (if `--seed-name` provided)
+
+Note: `db setup` does NOT run migrations or apply seeds. Use `seed apply` and `migrate up` separately.
 
 The database name, user, and password are all extracted from the DATABASE_URL.
 
@@ -515,8 +521,14 @@ cd yourproject
 # Configure environment
 export DATABASE_URL="postgres://user:pass@localhost/myproject_dev"
 
-# Full database setup (creates db, user, runs migrations, seeds)
-seedup db setup --seed-name dev
+# Step 1: Create database infrastructure
+seedup db setup
+
+# Step 2: Apply seed data (runs initial migration + loads seed)
+seedup seed apply dev
+
+# Step 3: Run remaining migrations
+seedup migrate up
 
 # Your database is now ready for development!
 ```

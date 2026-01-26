@@ -3,8 +3,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/lucasefe/seedup/pkg/pgconn"
@@ -139,7 +137,8 @@ func (m *Manager) SetupPermissions(ctx context.Context, dbURL, adminURL string) 
 	return nil
 }
 
-// Setup performs a full database setup: drop, create user, create db, permissions, migrate, seed
+// Setup performs a full database setup: create user, drop, create db, set permissions.
+// This does NOT run migrations or apply seeds - use 'migrate up' and 'seed apply' separately.
 func (m *Manager) Setup(ctx context.Context, opts SetupOptions) error {
 	cfg, err := ParseDatabaseURL(opts.DatabaseURL)
 	if err != nil {
@@ -173,39 +172,6 @@ func (m *Manager) Setup(ctx context.Context, opts SetupOptions) error {
 	fmt.Println("Setting up permissions...")
 	if err := m.SetupPermissions(ctx, opts.DatabaseURL, adminURL); err != nil {
 		return fmt.Errorf("setting up permissions: %w", err)
-	}
-
-	// 5. Run migrations (if any exist)
-	migrations, _ := filepath.Glob(filepath.Join(opts.MigrationsDir, "*.sql"))
-	if len(migrations) > 0 {
-		fmt.Println("Running migrations...")
-		if err := m.migrator.Up(ctx, opts.DatabaseURL, opts.MigrationsDir); err != nil {
-			return fmt.Errorf("running migrations: %w", err)
-		}
-	} else {
-		fmt.Println("No migration files found, skipping migrations")
-	}
-
-	// 6. Apply seeds (optional, requires --seed-name)
-	if !opts.SkipSeed && opts.SeedName != "" {
-		seedDir := filepath.Join(opts.SeedDir, opts.SeedName)
-		if _, err := os.Stat(seedDir); err == nil {
-			// Check for SQL files (new format) or CSV files (legacy format)
-			sqlFiles, _ := filepath.Glob(filepath.Join(seedDir, "*.sql"))
-			csvFiles, _ := filepath.Glob(filepath.Join(seedDir, "*.csv"))
-			if len(sqlFiles) > 0 || len(csvFiles) > 0 {
-				fmt.Printf("Applying seeds from '%s'...\n", seedDir)
-				if err := m.seeder.Apply(ctx, opts.DatabaseURL, opts.MigrationsDir, seedDir); err != nil {
-					return fmt.Errorf("applying seeds: %w", err)
-				}
-			} else {
-				fmt.Printf("No seed files found in '%s', skipping seeds\n", seedDir)
-			}
-		} else {
-			fmt.Printf("Seed directory '%s' not found, skipping seeds\n", seedDir)
-		}
-	} else if !opts.SkipSeed && opts.SeedName == "" {
-		fmt.Println("No --seed-name provided, skipping seeds")
 	}
 
 	return nil
