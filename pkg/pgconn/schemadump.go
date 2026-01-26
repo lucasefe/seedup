@@ -296,15 +296,14 @@ func dumpEnums(ctx context.Context, db *sql.DB) ([]string, error) {
 }
 
 func dumpDomains(ctx context.Context, db *sql.DB) ([]string, error) {
-	query := `
+	// Query domain metadata without array_agg to avoid PostgreSQL array escaping issues
+	domainsQuery := `
 		SELECT n.nspname as schema,
 		       t.typname as name,
 		       pg_catalog.format_type(t.typbasetype, t.typtypmod) as base_type,
 		       t.typnotnull as not_null,
 		       t.typdefault as default_value,
-		       (SELECT array_agg(pg_get_constraintdef(c.oid, true))
-		        FROM pg_constraint c
-		        WHERE c.contypid = t.oid) as constraints
+		       t.oid as type_oid
 		FROM pg_type t
 		JOIN pg_namespace n ON t.typnamespace = n.oid
 		WHERE t.typtype = 'd'
@@ -314,19 +313,27 @@ func dumpDomains(ctx context.Context, db *sql.DB) ([]string, error) {
 		ORDER BY n.nspname, t.typname
 	`
 
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, domainsQuery)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
+	// Query to get constraints for each domain individually
+	constraintsQuery := `
+		SELECT pg_get_constraintdef(c.oid, true)
+		FROM pg_constraint c
+		WHERE c.contypid = $1
+	`
+
 	var results []string
 	for rows.Next() {
 		var schema, name, baseType string
 		var notNull bool
-		var defaultValue, constraints sql.NullString
+		var defaultValue sql.NullString
+		var typeOID int64
 
-		if err := rows.Scan(&schema, &name, &baseType, &notNull, &defaultValue, &constraints); err != nil {
+		if err := rows.Scan(&schema, &name, &baseType, &notNull, &defaultValue, &typeOID); err != nil {
 			return nil, err
 		}
 
@@ -343,14 +350,23 @@ func dumpDomains(ctx context.Context, db *sql.DB) ([]string, error) {
 			sql += " DEFAULT " + defaultValue.String
 		}
 
-		// Parse constraints from {constraint1,constraint2} format
-		if constraints.Valid && constraints.String != "" {
-			constraintList := strings.Trim(constraints.String, "{}")
-			if constraintList != "" {
-				for _, c := range splitConstraints(constraintList) {
-					sql += "\n    " + c
-				}
+		// Query constraints individually for this domain
+		constraintRows, err := db.QueryContext(ctx, constraintsQuery, typeOID)
+		if err != nil {
+			return nil, fmt.Errorf("querying constraints for domain %s.%s: %w", schema, name, err)
+		}
+
+		for constraintRows.Next() {
+			var constraintDef string
+			if err := constraintRows.Scan(&constraintDef); err != nil {
+				constraintRows.Close()
+				return nil, fmt.Errorf("scanning constraint for domain %s.%s: %w", schema, name, err)
 			}
+			sql += "\n    " + constraintDef
+		}
+		constraintRows.Close()
+		if err := constraintRows.Err(); err != nil {
+			return nil, fmt.Errorf("iterating constraints for domain %s.%s: %w", schema, name, err)
 		}
 
 		sql += ";"
@@ -358,33 +374,6 @@ func dumpDomains(ctx context.Context, db *sql.DB) ([]string, error) {
 	}
 
 	return results, rows.Err()
-}
-
-func splitConstraints(s string) []string {
-	// Handle PostgreSQL array format with potential commas inside constraint definitions
-	var result []string
-	depth := 0
-	current := ""
-	for _, c := range s {
-		switch c {
-		case '(':
-			depth++
-		case ')':
-			depth--
-		}
-		if c == ',' && depth == 0 {
-			if current != "" {
-				result = append(result, strings.TrimSpace(current))
-			}
-			current = ""
-		} else {
-			current += string(c)
-		}
-	}
-	if current != "" {
-		result = append(result, strings.TrimSpace(current))
-	}
-	return result
 }
 
 func dumpCompositeTypes(ctx context.Context, db *sql.DB) ([]string, error) {

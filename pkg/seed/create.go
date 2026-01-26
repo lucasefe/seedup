@@ -38,13 +38,21 @@ func (s *Seeder) Create(ctx context.Context, dbURL, seedDir, queryFile string, o
 	}
 	defer db.Close()
 
-	// Get all tables in the database
+	// Step 1: Discover tables
+	fmt.Println("[1/5] Discovering tables...")
 	tables, err := s.getTables(ctx, db, opts)
 	if err != nil {
 		return fmt.Errorf("getting tables: %w", err)
 	}
+	// Count unique schemas
+	schemaSet := make(map[string]bool)
+	for _, t := range tables {
+		schemaSet[t.Schema] = true
+	}
+	fmt.Printf("      Found %d tables in %d schemas\n", len(tables), len(schemaSet))
 
-	// Get tables ordered by FK dependencies
+	// Step 2: Analyze FK dependencies
+	fmt.Println("[2/5] Analyzing foreign key dependencies...")
 	tableNames := make([]string, len(tables))
 	for i, t := range tables {
 		tableNames[i] = t.Schema + "." + t.Name
@@ -53,6 +61,7 @@ func (s *Seeder) Create(ctx context.Context, dbURL, seedDir, queryFile string, o
 	if err != nil {
 		return fmt.Errorf("determining table order: %w", err)
 	}
+	fmt.Printf("      Determined insertion order for %d tables\n", len(orderedNames))
 
 	// Reorder tables based on FK dependencies
 	tableMap := make(map[string]tableInfo)
@@ -154,7 +163,8 @@ func (s *Seeder) extractSeedData(ctx context.Context, db *sql.DB, tables []table
 	}
 	defer tx.Rollback()
 
-	// Create temp tables for each real table
+	// Step 3: Prepare temporary tables
+	fmt.Println("[3/5] Preparing temporary tables...")
 	for _, t := range tables {
 		tempTable := fmt.Sprintf(`"seed.%s.%s"`, t.Schema, t.Name)
 		createSQL := fmt.Sprintf(
@@ -167,13 +177,15 @@ func (s *Seeder) extractSeedData(ctx context.Context, db *sql.DB, tables []table
 			return fmt.Errorf("creating temp table for %s.%s: %w", t.Schema, t.Name, err)
 		}
 	}
+	fmt.Printf("      Created %d temp tables\n", len(tables))
 
-	// Execute the user's seed query file which populates the temp tables
+	// Step 4: Execute dump.sql
+	fmt.Println("[4/5] Executing dump.sql...")
 	if queryFile != "" {
 		queryContent, err := os.ReadFile(queryFile)
 		if err != nil {
 			if os.IsNotExist(err) {
-				fmt.Printf("Warning: seed query file '%s' not found, proceeding without custom queries\n", queryFile)
+				fmt.Printf("      Warning: seed query file '%s' not found, proceeding without custom queries\n", queryFile)
 			} else {
 				return fmt.Errorf("reading query file: %w", err)
 			}
@@ -183,6 +195,10 @@ func (s *Seeder) extractSeedData(ctx context.Context, db *sql.DB, tables []table
 			}
 		}
 	}
+	fmt.Println("      Populated temp tables with seed data")
+
+	// Step 5: Export seed data
+	fmt.Println("[5/5] Exporting seed data...")
 
 	// Build output file content with all tables
 	var output strings.Builder
@@ -190,6 +206,7 @@ func (s *Seeder) extractSeedData(ctx context.Context, db *sql.DB, tables []table
 	output.WriteString("-- Tables are ordered by foreign key dependencies\n\n")
 
 	// Generate INSERT statements for each table
+	totalRows := 0
 	for _, t := range tables {
 		insertSQL, rowCount, err := s.generateTableInserts(ctx, tx, t)
 		if err != nil {
@@ -199,13 +216,16 @@ func (s *Seeder) extractSeedData(ctx context.Context, db *sql.DB, tables []table
 			output.WriteString(insertSQL)
 			output.WriteString("\n")
 		}
-		fmt.Printf("Exported %s.%s (%d rows)\n", t.Schema, t.Name, rowCount)
+		totalRows += rowCount
+		fmt.Printf("      %s.%s (%d rows)\n", t.Schema, t.Name, rowCount)
 	}
 
 	// Write the consolidated output file
 	if err := os.WriteFile(outputFile, []byte(output.String()), 0644); err != nil {
 		return fmt.Errorf("writing output file: %w", err)
 	}
+
+	fmt.Printf("      Wrote load.sql (%d rows total)\n", totalRows)
 
 	// No need to commit - the deferred tx.Rollback() will clean up temp tables
 	return nil
@@ -225,7 +245,7 @@ func (s *Seeder) generateTableInserts(ctx context.Context, tx *sql.Tx, t tableIn
 
 	if len(columns) == 0 {
 		// No columns found, skip this table
-		fmt.Printf("Warning: no columns found for table %s.%s\n", t.Schema, t.Name)
+		fmt.Printf("      Warning: no columns found for table %s.%s\n", t.Schema, t.Name)
 		return "", 0, nil
 	}
 

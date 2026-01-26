@@ -79,6 +79,12 @@ type SeedCreateOptions struct {
 	Schemas []string
 	// AllSchemas includes all non-system schemas when true.
 	AllSchemas bool
+	// NoFlatten skips flattening migrations after seed creation.
+	// By default, flatten is run automatically after creating seeds.
+	NoFlatten bool
+	// MigrationsDir specifies the migrations directory for flatten.
+	// Required unless NoFlatten is true.
+	MigrationsDir string
 }
 
 // DBOptions configures database operations.
@@ -190,20 +196,45 @@ func SeedApply(ctx context.Context, dbURL, migrationsDir, seedDir string) error 
 
 // SeedCreate creates seed data from an existing database.
 // It reads a query file, executes it, and exports results to a single load.sql file.
+// After creating the seed, it automatically flattens migrations unless NoFlatten is set.
 //
 // The queryFile (dump.sql) should contain SQL that populates temporary tables.
 // Results are saved to seedDir/load.sql as batched INSERT statements.
 //
 // Example:
 //
-//	err := seedup.SeedCreate(ctx, dbURL, "./seed/dev", "./seed/dev/dump.sql", seedup.SeedCreateOptions{})
+//	err := seedup.SeedCreate(ctx, dbURL, "./seed/dev", "./seed/dev/dump.sql", seedup.SeedCreateOptions{
+//	    MigrationsDir: "./migrations",
+//	})
 func SeedCreate(ctx context.Context, dbURL, seedDir, queryFile string, opts SeedCreateOptions) error {
 	s := seed.New()
-	return s.Create(ctx, dbURL, seedDir, queryFile, seed.CreateOptions{
+	if err := s.Create(ctx, dbURL, seedDir, queryFile, seed.CreateOptions{
 		DryRun:     opts.DryRun,
 		Schemas:    opts.Schemas,
 		AllSchemas: opts.AllSchemas,
-	})
+	}); err != nil {
+		return err
+	}
+
+	// Run flatten after seed create unless NoFlatten is specified
+	if !opts.NoFlatten && !opts.DryRun {
+		if opts.MigrationsDir == "" {
+			return fmt.Errorf("MigrationsDir is required for flatten (set NoFlatten to skip)")
+		}
+
+		conn, err := pgconn.Open(dbURL)
+		if err != nil {
+			return fmt.Errorf("opening database for flatten: %w", err)
+		}
+		defer conn.Close()
+
+		f := migrate.NewFlattener(conn)
+		if err := f.Flatten(ctx, opts.MigrationsDir); err != nil {
+			return fmt.Errorf("flattening migrations: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // DBCreate creates the database specified in the connection URL.

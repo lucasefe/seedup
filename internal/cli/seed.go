@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lucasefe/seedup/pkg/migrate"
+	"github.com/lucasefe/seedup/pkg/pgconn"
 	"github.com/lucasefe/seedup/pkg/seed"
 	"github.com/spf13/cobra"
 )
@@ -14,6 +16,7 @@ var (
 	dryRun     bool
 	schemas    string
 	allSchemas bool
+	noFlatten  bool
 )
 
 func newSeedCmd() *cobra.Command {
@@ -114,13 +117,34 @@ Example:
 				AllSchemas: allSchemas,
 			}
 
-			return s.Create(context.Background(), dbURL, dir, queryFile, opts)
+			if err := s.Create(context.Background(), dbURL, dir, queryFile, opts); err != nil {
+				return err
+			}
+
+			// Run flatten after seed create unless --no-flatten is specified
+			if !noFlatten && !dryRun {
+				fmt.Println("[6/6] Flattening migrations...")
+				db, err := pgconn.Open(dbURL)
+				if err != nil {
+					return fmt.Errorf("opening database for flatten: %w", err)
+				}
+				defer db.Close()
+
+				f := migrate.NewFlattener(db)
+				if err := f.Flatten(context.Background(), getMigrationsDir()); err != nil {
+					return fmt.Errorf("flattening migrations: %w", err)
+				}
+				fmt.Println("      Migrations flattened successfully")
+			}
+
+			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview without modifying files")
 	cmd.Flags().StringVar(&schemas, "schemas", "", "Comma-separated list of schemas to include (default: public)")
 	cmd.Flags().BoolVarP(&allSchemas, "all-schemas", "a", false, "Include all non-system schemas")
+	cmd.Flags().BoolVar(&noFlatten, "no-flatten", false, "Skip flattening migrations after seed creation")
 
 	return cmd
 }
