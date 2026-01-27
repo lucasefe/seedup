@@ -23,7 +23,8 @@
       "Bash(make seed-create:*)",
       "Bash(make reset:*)",
       "Bash(go run:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(readlink:*)"
     ]
   }
 }

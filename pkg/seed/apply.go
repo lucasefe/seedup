@@ -83,6 +83,12 @@ func (s *Seeder) loadSeedData(ctx context.Context, dbURL, seedDir string) error 
 	}
 	defer tx.Rollback()
 
+	// Disable triggers during seed loading to prevent auto-generated records
+	// from conflicting with seed data (e.g., account triggers that create members)
+	if _, err := tx.ExecContext(ctx, "SET session_replication_role = 'replica'"); err != nil {
+		return fmt.Errorf("disabling triggers: %w", err)
+	}
+
 	// Truncate all tables in reverse order (respects FK constraints)
 	for i := len(orderedTables) - 1; i >= 0; i-- {
 		table := orderedTables[i]
@@ -97,6 +103,11 @@ func (s *Seeder) loadSeedData(ctx context.Context, dbURL, seedDir string) error 
 		return fmt.Errorf("executing seed file: %w", err)
 	}
 	fmt.Printf("Loaded seed data for %d tables\n", len(tables))
+
+	// Re-enable triggers
+	if _, err := tx.ExecContext(ctx, "SET session_replication_role = 'origin'"); err != nil {
+		return fmt.Errorf("re-enabling triggers: %w", err)
+	}
 
 	// Commit transaction
 	if err := tx.Commit(); err != nil {

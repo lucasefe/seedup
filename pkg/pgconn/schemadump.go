@@ -84,18 +84,19 @@ func DumpSchema(ctx context.Context, db *sql.DB, excludeTables []string) (string
 		parts = append(parts, "")
 	}
 
-	// 7. Dump functions (before tables, since defaults might reference them)
-	functions, err := dumpFunctions(ctx, db)
+	// 7. Dump PL/pgSQL functions (before tables, since table defaults may reference them)
+	// These don't validate table references at creation time.
+	functionsEarly, err := dumpFunctionsEarly(ctx, db)
 	if err != nil {
-		return "", fmt.Errorf("dumping functions: %w", err)
+		return "", fmt.Errorf("dumping early functions: %w", err)
 	}
-	if len(functions) > 0 {
-		parts = append(parts, "-- Functions")
-		parts = append(parts, functions...)
+	if len(functionsEarly) > 0 {
+		parts = append(parts, "-- Functions (PL/pgSQL)")
+		parts = append(parts, functionsEarly...)
 		parts = append(parts, "")
 	}
 
-	// 8. Dump tables
+	// 8. Dump tables (after PL/pgSQL functions, before SQL functions)
 	tables, err := dumpTables(ctx, db, excludeSet)
 	if err != nil {
 		return "", fmt.Errorf("dumping tables: %w", err)
@@ -106,7 +107,18 @@ func DumpSchema(ctx context.Context, db *sql.DB, excludeTables []string) (string
 		parts = append(parts, "")
 	}
 
-	// 9. Dump views
+	// 9. Dump SQL functions (after tables, since they validate table references at creation time)
+	functionsLate, err := dumpFunctionsLate(ctx, db)
+	if err != nil {
+		return "", fmt.Errorf("dumping late functions: %w", err)
+	}
+	if len(functionsLate) > 0 {
+		parts = append(parts, "-- Functions (SQL)")
+		parts = append(parts, functionsLate...)
+		parts = append(parts, "")
+	}
+
+	// 10. Dump views
 	views, err := dumpViews(ctx, db, excludeSet)
 	if err != nil {
 		return "", fmt.Errorf("dumping views: %w", err)
@@ -117,7 +129,7 @@ func DumpSchema(ctx context.Context, db *sql.DB, excludeTables []string) (string
 		parts = append(parts, "")
 	}
 
-	// 10. Dump primary keys
+	// 11. Dump primary keys
 	pks, err := dumpPrimaryKeys(ctx, db, excludeSet)
 	if err != nil {
 		return "", fmt.Errorf("dumping primary keys: %w", err)
@@ -128,7 +140,7 @@ func DumpSchema(ctx context.Context, db *sql.DB, excludeTables []string) (string
 		parts = append(parts, "")
 	}
 
-	// 11. Dump unique constraints
+	// 12. Dump unique constraints
 	uniques, err := dumpUniqueConstraints(ctx, db, excludeSet)
 	if err != nil {
 		return "", fmt.Errorf("dumping unique constraints: %w", err)
@@ -139,7 +151,7 @@ func DumpSchema(ctx context.Context, db *sql.DB, excludeTables []string) (string
 		parts = append(parts, "")
 	}
 
-	// 12. Dump check constraints
+	// 13. Dump check constraints
 	checks, err := dumpCheckConstraints(ctx, db, excludeSet)
 	if err != nil {
 		return "", fmt.Errorf("dumping check constraints: %w", err)
@@ -150,7 +162,7 @@ func DumpSchema(ctx context.Context, db *sql.DB, excludeTables []string) (string
 		parts = append(parts, "")
 	}
 
-	// 13. Dump foreign keys (after all tables and PKs are created)
+	// 14. Dump foreign keys (after all tables and PKs are created)
 	fks, err := dumpForeignKeys(ctx, db, excludeSet)
 	if err != nil {
 		return "", fmt.Errorf("dumping foreign keys: %w", err)
@@ -161,7 +173,7 @@ func DumpSchema(ctx context.Context, db *sql.DB, excludeTables []string) (string
 		parts = append(parts, "")
 	}
 
-	// 14. Dump indexes (non-constraint indexes)
+	// 15. Dump indexes (non-constraint indexes)
 	indexes, err := dumpIndexes(ctx, db, excludeSet)
 	if err != nil {
 		return "", fmt.Errorf("dumping indexes: %w", err)
@@ -172,7 +184,7 @@ func DumpSchema(ctx context.Context, db *sql.DB, excludeTables []string) (string
 		parts = append(parts, "")
 	}
 
-	// 15. Dump triggers (after functions and tables)
+	// 16. Dump triggers (after functions and tables)
 	triggers, err := dumpTriggers(ctx, db, excludeSet)
 	if err != nil {
 		return "", fmt.Errorf("dumping triggers: %w", err)
@@ -254,11 +266,6 @@ func dumpEnums(ctx context.Context, db *sql.DB) ([]string, error) {
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
-		  AND NOT EXISTS (
-		      SELECT 1 FROM pg_depend d
-		      WHERE d.objid = t.oid
-		        AND d.deptype = 'e'
-		  )
 		GROUP BY n.nspname, t.typname
 		ORDER BY n.nspname, t.typname
 	`
@@ -315,11 +322,6 @@ func dumpDomains(ctx context.Context, db *sql.DB) ([]string, error) {
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
-		  AND NOT EXISTS (
-		      SELECT 1 FROM pg_depend d
-		      WHERE d.objid = t.oid
-		        AND d.deptype = 'e'
-		  )
 		ORDER BY n.nspname, t.typname
 	`
 
@@ -387,7 +389,7 @@ func dumpDomains(ctx context.Context, db *sql.DB) ([]string, error) {
 }
 
 func dumpCompositeTypes(ctx context.Context, db *sql.DB) ([]string, error) {
-	// Get composite types
+	// Get composite types, excluding auto-generated types for tables and views
 	query := `
 		SELECT n.nspname as schema, t.typname as name
 		FROM pg_type t
@@ -396,12 +398,7 @@ func dumpCompositeTypes(ctx context.Context, db *sql.DB) ([]string, error) {
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
-		  AND NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.reltype = t.oid AND c.relkind = 'r')
-		  AND NOT EXISTS (
-		      SELECT 1 FROM pg_depend d
-		      WHERE d.objid = t.oid
-		        AND d.deptype = 'e'
-		  )
+		  AND NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.reltype = t.oid AND c.relkind IN ('r', 'v'))
 		ORDER BY n.nspname, t.typname
 	`
 
@@ -513,17 +510,63 @@ func dumpSequences(ctx context.Context, db *sql.DB, _ map[string]bool) ([]string
 	return results, rows.Err()
 }
 
-func dumpFunctions(ctx context.Context, db *sql.DB) ([]string, error) {
+// dumpFunctionsEarly dumps functions that use PL/pgSQL or other late-binding languages.
+// These can be created before tables since they don't validate table references at creation time.
+// This is needed for table DEFAULT expressions that reference these functions.
+func dumpFunctionsEarly(ctx context.Context, db *sql.DB) ([]string, error) {
 	query := `
 		SELECT n.nspname as schema,
 		       p.proname as name,
 		       pg_get_functiondef(p.oid) as definition
 		FROM pg_proc p
 		JOIN pg_namespace n ON p.pronamespace = n.oid
+		JOIN pg_language l ON p.prolang = l.oid
 		WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		  AND p.prokind IN ('f', 'p')  -- functions and procedures
+		  AND l.lanname != 'sql'  -- exclude SQL functions (they validate table refs at creation)
+		  AND NOT EXISTS (
+		      SELECT 1 FROM pg_depend d
+		      WHERE d.objid = p.oid
+		        AND d.deptype = 'e'
+		  )
+		ORDER BY n.nspname, p.proname, p.oid
+	`
+
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []string
+	for rows.Next() {
+		var schema, name, definition string
+		if err := rows.Scan(&schema, &name, &definition); err != nil {
+			return nil, err
+		}
+		results = append(results, definition+";")
+	}
+
+	return results, rows.Err()
+}
+
+// dumpFunctionsLate dumps SQL language functions.
+// These must be created after tables since SQL functions validate table references at creation time.
+func dumpFunctionsLate(ctx context.Context, db *sql.DB) ([]string, error) {
+	query := `
+		SELECT n.nspname as schema,
+		       p.proname as name,
+		       pg_get_functiondef(p.oid) as definition
+		FROM pg_proc p
+		JOIN pg_namespace n ON p.pronamespace = n.oid
+		JOIN pg_language l ON p.prolang = l.oid
+		WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+		  AND n.nspname NOT LIKE 'pg_temp_%'
+		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
+		  AND p.prokind IN ('f', 'p')  -- functions and procedures
+		  AND l.lanname = 'sql'  -- only SQL functions
 		  AND NOT EXISTS (
 		      SELECT 1 FROM pg_depend d
 		      WHERE d.objid = p.oid

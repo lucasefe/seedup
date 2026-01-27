@@ -107,6 +107,11 @@ func SerializeValue(value interface{}, pgType string) string {
 		if strings.HasPrefix(pgType, "bytea") {
 			return fmt.Sprintf("'\\x%x'", v)
 		}
+		// Use dollar-quoting for arrays to avoid escaping issues with composite types
+		// that contain embedded quotes (e.g., tax_type[] with text fields)
+		if strings.HasSuffix(strings.ToLower(pgType), "[]") {
+			return quoteDollar(string(v))
+		}
 		// Otherwise treat as string
 		return QuoteString(string(v))
 	case *interface{}:
@@ -198,8 +203,10 @@ func SerializeValue(value interface{}, pgType string) string {
 		return QuoteString(fmt.Sprintf("%v", value))
 
 	// Array types (type ends with [])
+	// Use dollar-quoting for arrays to avoid escaping issues with composite types
+	// that contain embedded quotes (e.g., tax_type[] with text fields)
 	case strings.HasSuffix(normalizedType, "[]"):
-		return QuoteString(fmt.Sprintf("%v", value))
+		return quoteDollar(fmt.Sprintf("%v", value))
 
 	// Text/string types
 	case normalizedType == "text" ||
@@ -258,6 +265,16 @@ func QuoteString(s string) string {
 		return fmt.Sprintf("E'%s'", escaped)
 	}
 	return fmt.Sprintf("'%s'", escaped)
+}
+
+// quoteDollar uses PostgreSQL dollar-quoting for values that have complex escaping needs.
+// It automatically generates a unique tag that doesn't appear in the value.
+func quoteDollar(s string) string {
+	tag := "q"
+	for strings.Contains(s, "$"+tag+"$") {
+		tag += "q"
+	}
+	return fmt.Sprintf("$%s$%s$%s$", tag, s, tag)
 }
 
 // SerializeRow converts a row of values to SQL literal strings.
