@@ -73,3 +73,14 @@ func (c *DBConfig) URLWithDatabase(dbName string) string {
 	return fmt.Sprintf("postgres://%s@%s:%s/%s?sslmode=%s",
 		c.User, c.Host, c.Port, dbName, c.SSLMode)
 }
+
+// AdminURLForDatabase returns an admin URL pointing to a specific database.
+// This is used for admin operations that need to run on the target database.
+func (c *DBConfig) AdminURLForDatabase(dbName string) string {
+	adminUser := "postgres"
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		adminUser = u.Username
+	}
+	return fmt.Sprintf("postgres://%s@%s:%s/%s?sslmode=%s",
+		adminUser, c.Host, c.Port, dbName, c.SSLMode)
+}

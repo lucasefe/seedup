@@ -134,6 +134,33 @@ func (m *Manager) SetupPermissions(ctx context.Context, dbURL, adminURL string) 
 		return fmt.Errorf("setting database owner: %w", err)
 	}
 
+	// Connect to the target database as admin to grant session_replication_role permission
+	// This is needed for seed loading to disable triggers
+	var targetAdminURL string
+	if adminURL != "" {
+		// Parse the provided admin URL and change to target database
+		adminCfg, err := ParseDatabaseURL(adminURL)
+		if err != nil {
+			return fmt.Errorf("parsing admin URL: %w", err)
+		}
+		targetAdminURL = adminCfg.URLWithDatabase(cfg.Database)
+	} else {
+		// Use system user with target database
+		targetAdminURL = cfg.AdminURLForDatabase(cfg.Database)
+	}
+
+	targetDB, err := pgconn.Open(targetAdminURL)
+	if err != nil {
+		return fmt.Errorf("connecting to target database: %w", err)
+	}
+	defer targetDB.Close()
+
+	grantReplicaQuery := fmt.Sprintf("GRANT SET ON PARAMETER session_replication_role TO %s",
+		quoteIdent(cfg.User))
+	if _, err := targetDB.ExecContext(ctx, grantReplicaQuery); err != nil {
+		return fmt.Errorf("granting session_replication_role permission: %w", err)
+	}
+
 	return nil
 }
 
