@@ -254,6 +254,11 @@ func dumpEnums(ctx context.Context, db *sql.DB) ([]string, error) {
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
+		  AND NOT EXISTS (
+		      SELECT 1 FROM pg_depend d
+		      WHERE d.objid = t.oid
+		        AND d.deptype = 'e'
+		  )
 		GROUP BY n.nspname, t.typname
 		ORDER BY n.nspname, t.typname
 	`
@@ -310,6 +315,11 @@ func dumpDomains(ctx context.Context, db *sql.DB) ([]string, error) {
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
+		  AND NOT EXISTS (
+		      SELECT 1 FROM pg_depend d
+		      WHERE d.objid = t.oid
+		        AND d.deptype = 'e'
+		  )
 		ORDER BY n.nspname, t.typname
 	`
 
@@ -387,6 +397,11 @@ func dumpCompositeTypes(ctx context.Context, db *sql.DB) ([]string, error) {
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		  AND NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.reltype = t.oid AND c.relkind = 'r')
+		  AND NOT EXISTS (
+		      SELECT 1 FROM pg_depend d
+		      WHERE d.objid = t.oid
+		        AND d.deptype = 'e'
+		  )
 		ORDER BY n.nspname, t.typname
 	`
 
@@ -509,6 +524,11 @@ func dumpFunctions(ctx context.Context, db *sql.DB) ([]string, error) {
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		  AND p.prokind IN ('f', 'p')  -- functions and procedures
+		  AND NOT EXISTS (
+		      SELECT 1 FROM pg_depend d
+		      WHERE d.objid = p.oid
+		        AND d.deptype = 'e'
+		  )
 		ORDER BY n.nspname, p.proname, p.oid
 	`
 
