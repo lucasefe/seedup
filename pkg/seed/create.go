@@ -238,14 +238,30 @@ func (s *Seeder) generateTableInserts(ctx context.Context, tx *sql.Tx, t tableIn
 	tempTableQuoted := fmt.Sprintf(`"seed.%s.%s"`, t.Schema, t.Name)
 
 	// Get column info for the temp table
-	columns, err := pgconn.GetColumnInfo(ctx, tx, tempTableName)
+	allColumns, err := pgconn.GetColumnInfo(ctx, tx, tempTableName)
 	if err != nil {
 		return "", 0, fmt.Errorf("getting column info: %w", err)
 	}
 
-	if len(columns) == 0 {
+	if len(allColumns) == 0 {
 		// No columns found, skip this table
 		fmt.Printf("      Warning: no columns found for table %s.%s\n", t.Schema, t.Name)
+		return "", 0, nil
+	}
+
+	// Filter out generated columns (cannot INSERT into them)
+	var insertableColumns []pgconn.ColumnInfo
+	var insertableIndices []int
+	for i, col := range allColumns {
+		if !col.IsGenerated {
+			insertableColumns = append(insertableColumns, col)
+			insertableIndices = append(insertableIndices, i)
+		}
+	}
+
+	if len(insertableColumns) == 0 {
+		// All columns are generated, skip this table
+		fmt.Printf("      Warning: all columns are generated for table %s.%s\n", t.Schema, t.Name)
 		return "", 0, nil
 	}
 
@@ -256,9 +272,9 @@ func (s *Seeder) generateTableInserts(ctx context.Context, tx *sql.Tx, t tableIn
 	}
 	defer rows.Close()
 
-	// Build column names list for INSERT statements
-	colNames := make([]string, len(columns))
-	for i, col := range columns {
+	// Build column names list for INSERT statements (only insertable columns)
+	colNames := make([]string, len(insertableColumns))
+	for i, col := range insertableColumns {
 		colNames[i] = pgconn.QuoteIdentifier(col.Name)
 	}
 	colNamesStr := strings.Join(colNames, ", ")
@@ -266,19 +282,25 @@ func (s *Seeder) generateTableInserts(ctx context.Context, tx *sql.Tx, t tableIn
 	// Collect all row values
 	var valueRows []string
 	for rows.Next() {
-		// Create scan destinations
-		values := make([]any, len(columns))
-		valuePtrs := make([]any, len(columns))
-		for i := range values {
-			valuePtrs[i] = &values[i]
+		// Create scan destinations for ALL columns (SELECT * returns all)
+		allValues := make([]any, len(allColumns))
+		valuePtrs := make([]any, len(allColumns))
+		for i := range allValues {
+			valuePtrs[i] = &allValues[i]
 		}
 
 		if err := rows.Scan(valuePtrs...); err != nil {
 			return "", 0, fmt.Errorf("scanning row: %w", err)
 		}
 
-		// Serialize values
-		serialized := pgconn.SerializeRow(values, columns)
+		// Extract only insertable column values
+		insertableValues := make([]any, len(insertableIndices))
+		for i, idx := range insertableIndices {
+			insertableValues[i] = allValues[idx]
+		}
+
+		// Serialize values (only insertable columns)
+		serialized := pgconn.SerializeRow(insertableValues, insertableColumns)
 		valueRows = append(valueRows, fmt.Sprintf("    (%s)", strings.Join(serialized, ", ")))
 	}
 

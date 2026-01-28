@@ -10,8 +10,9 @@ import (
 
 // ColumnInfo holds metadata about a database column.
 type ColumnInfo struct {
-	Name     string
-	DataType string // PostgreSQL data type (e.g., "integer", "text", "numrange")
+	Name        string
+	DataType    string // PostgreSQL data type (e.g., "integer", "text", "numrange")
+	IsGenerated bool   // True if this is a GENERATED ALWAYS AS column
 }
 
 // GetColumnInfo retrieves column information for a table.
@@ -42,7 +43,8 @@ func GetColumnInfo(ctx context.Context, db interface{ QueryContext(context.Conte
 		// For temp tables, use LIKE pattern to match pg_temp_N schemas
 		query = `
 			SELECT a.attname AS column_name,
-			       format_type(a.atttypid, a.atttypmod) AS data_type
+			       format_type(a.atttypid, a.atttypmod) AS data_type,
+			       a.attgenerated = 's' AS is_generated
 			FROM pg_attribute a
 			JOIN pg_class c ON a.attrelid = c.oid
 			JOIN pg_namespace n ON c.relnamespace = n.oid
@@ -56,7 +58,8 @@ func GetColumnInfo(ctx context.Context, db interface{ QueryContext(context.Conte
 	} else {
 		query = `
 			SELECT a.attname AS column_name,
-			       format_type(a.atttypid, a.atttypmod) AS data_type
+			       format_type(a.atttypid, a.atttypmod) AS data_type,
+			       a.attgenerated = 's' AS is_generated
 			FROM pg_attribute a
 			JOIN pg_class c ON a.attrelid = c.oid
 			JOIN pg_namespace n ON c.relnamespace = n.oid
@@ -78,7 +81,7 @@ func GetColumnInfo(ctx context.Context, db interface{ QueryContext(context.Conte
 	var cols []ColumnInfo
 	for rows.Next() {
 		var col ColumnInfo
-		if err := rows.Scan(&col.Name, &col.DataType); err != nil {
+		if err := rows.Scan(&col.Name, &col.DataType, &col.IsGenerated); err != nil {
 			return nil, fmt.Errorf("scanning column info: %w", err)
 		}
 		cols = append(cols, col)

@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -134,8 +135,7 @@ func (m *Manager) SetupPermissions(ctx context.Context, dbURL, adminURL string) 
 		return fmt.Errorf("setting database owner: %w", err)
 	}
 
-	// Connect to the target database as admin to grant session_replication_role permission
-	// This is needed for seed loading to disable triggers
+	// Connect to the target database as admin to grant additional permissions
 	var targetAdminURL string
 	if adminURL != "" {
 		// Parse the provided admin URL and change to target database
@@ -155,10 +155,63 @@ func (m *Manager) SetupPermissions(ctx context.Context, dbURL, adminURL string) 
 	}
 	defer targetDB.Close()
 
+	// Grant session_replication_role permission (needed for seed loading to disable triggers)
 	grantReplicaQuery := fmt.Sprintf("GRANT SET ON PARAMETER session_replication_role TO %s",
 		quoteIdent(cfg.User))
 	if _, err := targetDB.ExecContext(ctx, grantReplicaQuery); err != nil {
 		return fmt.Errorf("granting session_replication_role permission: %w", err)
+	}
+
+	// Create read-only user and grant permissions
+	roUser := cfg.User + "_ro"
+	if err := m.setupReadOnlyUser(ctx, db, targetDB, cfg, roUser); err != nil {
+		return fmt.Errorf("setting up read-only user: %w", err)
+	}
+
+	return nil
+}
+
+// setupReadOnlyUser creates a read-only user and grants SELECT permissions
+func (m *Manager) setupReadOnlyUser(ctx context.Context, adminDB, targetDB *sql.DB, cfg *DBConfig, roUser string) error {
+	// Create read-only user if not exists
+	checkQuery := "SELECT 1 FROM pg_roles WHERE rolname = $1"
+	var exists int
+	err := adminDB.QueryRowContext(ctx, checkQuery, roUser).Scan(&exists)
+	if err != nil || exists != 1 {
+		createQuery := fmt.Sprintf("CREATE USER %s WITH PASSWORD '%s'",
+			quoteIdent(roUser), escapePassword(cfg.Password))
+		if _, err := adminDB.ExecContext(ctx, createQuery); err != nil {
+			// Ignore "already exists" error
+			if !strings.Contains(err.Error(), "already exists") {
+				return fmt.Errorf("creating read-only user: %w", err)
+			}
+		}
+	}
+
+	// Grant CONNECT on database
+	grantConnectQuery := fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s",
+		quoteIdent(cfg.Database), quoteIdent(roUser))
+	if _, err := adminDB.ExecContext(ctx, grantConnectQuery); err != nil {
+		return fmt.Errorf("granting connect: %w", err)
+	}
+
+	// Grant USAGE on public schema
+	grantUsageQuery := fmt.Sprintf("GRANT USAGE ON SCHEMA public TO %s", quoteIdent(roUser))
+	if _, err := targetDB.ExecContext(ctx, grantUsageQuery); err != nil {
+		return fmt.Errorf("granting schema usage: %w", err)
+	}
+
+	// Grant SELECT on all existing tables
+	grantSelectQuery := fmt.Sprintf("GRANT SELECT ON ALL TABLES IN SCHEMA public TO %s", quoteIdent(roUser))
+	if _, err := targetDB.ExecContext(ctx, grantSelectQuery); err != nil {
+		return fmt.Errorf("granting select: %w", err)
+	}
+
+	// Set default privileges for future tables
+	defaultPrivQuery := fmt.Sprintf("ALTER DEFAULT PRIVILEGES FOR USER %s IN SCHEMA public GRANT SELECT ON TABLES TO %s",
+		quoteIdent(cfg.User), quoteIdent(roUser))
+	if _, err := targetDB.ExecContext(ctx, defaultPrivQuery); err != nil {
+		return fmt.Errorf("setting default privileges: %w", err)
 	}
 
 	return nil

@@ -593,6 +593,38 @@ func dumpFunctionsLate(ctx context.Context, db *sql.DB) ([]string, error) {
 	return results, rows.Err()
 }
 
+// getGeneratedColumns returns a map of column names to their generation expressions
+// for columns that are GENERATED ALWAYS AS (stored)
+func getGeneratedColumns(ctx context.Context, db *sql.DB, schema, table string) (map[string]string, error) {
+	query := `
+		SELECT a.attname, pg_get_expr(d.adbin, d.adrelid) as generation_expr
+		FROM pg_attribute a
+		JOIN pg_class c ON c.oid = a.attrelid
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+		WHERE n.nspname = $1
+		  AND c.relname = $2
+		  AND a.attnum > 0
+		  AND NOT a.attisdropped
+		  AND a.attgenerated = 's'
+	`
+	rows, err := db.QueryContext(ctx, query, schema, table)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var colName, expr string
+		if err := rows.Scan(&colName, &expr); err != nil {
+			return nil, err
+		}
+		result[colName] = expr
+	}
+	return result, rows.Err()
+}
+
 func dumpTables(ctx context.Context, db *sql.DB, excludeSet map[string]bool) ([]string, error) {
 	// Get all tables
 	tablesQuery := `
@@ -621,6 +653,12 @@ func dumpTables(ctx context.Context, db *sql.DB, excludeSet map[string]bool) ([]
 		fullName := schema + "." + tableName
 		if excludeSet[fullName] || excludeSet[tableName] {
 			continue
+		}
+
+		// Get generated columns info
+		generatedCols, err := getGeneratedColumns(ctx, db, schema, tableName)
+		if err != nil {
+			return nil, fmt.Errorf("querying generated columns for %s.%s: %w", schema, tableName, err)
 		}
 
 		// Get columns for this table
@@ -687,14 +725,22 @@ func dumpTables(ctx context.Context, db *sql.DB, excludeSet map[string]bool) ([]
 				colDef += dataType
 			}
 
-			// Add NOT NULL if applicable
-			if isNullable.Valid && isNullable.String == "NO" {
-				colDef += " NOT NULL"
-			}
-
-			// Add DEFAULT if applicable
-			if colDefault.Valid && colDefault.String != "" {
-				colDef += " DEFAULT " + colDefault.String
+			// Check if this is a generated column
+			if genExpr, isGenerated := generatedCols[colName]; isGenerated {
+				colDef += " GENERATED ALWAYS AS (" + genExpr + ") STORED"
+				if isNullable.Valid && isNullable.String == "NO" {
+					colDef += " NOT NULL"
+				}
+				// Generated columns cannot have DEFAULT, skip it
+			} else {
+				// Add NOT NULL if applicable
+				if isNullable.Valid && isNullable.String == "NO" {
+					colDef += " NOT NULL"
+				}
+				// Add DEFAULT if applicable
+				if colDefault.Valid && colDefault.String != "" {
+					colDef += " DEFAULT " + colDefault.String
+				}
 			}
 
 			columns = append(columns, colDef)
