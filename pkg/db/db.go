@@ -12,6 +12,7 @@ func New() *Manager {
 // Setup only creates the database infrastructure (user, database, permissions).
 // Use 'migrate up' and 'seed apply' separately to apply migrations and seeds.
 type SetupOptions struct {
-	DatabaseURL string
-	AdminURL    string // Optional: URL for admin operations (defaults to postgres@host/postgres)
+	DatabaseURL  string
+	AdminURL     string // Optional: URL for admin operations (defaults to postgres@host/postgres)
+	SkipTestDB   bool   // If true, skip creating the test database
 }

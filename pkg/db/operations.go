@@ -165,6 +165,7 @@ func (m *Manager) SetupPermissions(ctx context.Context, dbURL, adminURL string) 
 }
 
 // Setup performs a full database setup: create user, drop, create db, set permissions.
+// By default, also creates a test database ({dbname}_test) with the same permissions.
 // This does NOT run migrations or apply seeds - use 'migrate up' and 'seed apply' separately.
 func (m *Manager) Setup(ctx context.Context, opts SetupOptions) error {
 	cfg, err := ParseDatabaseURL(opts.DatabaseURL)
@@ -199,6 +200,27 @@ func (m *Manager) Setup(ctx context.Context, opts SetupOptions) error {
 	fmt.Println("Setting up permissions...")
 	if err := m.SetupPermissions(ctx, opts.DatabaseURL, adminURL); err != nil {
 		return fmt.Errorf("setting up permissions: %w", err)
+	}
+
+	// 5. Create test database (unless skipped)
+	if !opts.SkipTestDB {
+		testDBName := cfg.Database + "_test"
+		testDBURL := cfg.URLWithDatabase(testDBName)
+
+		fmt.Printf("Dropping test database '%s' if exists...\n", testDBName)
+		if err := m.Drop(ctx, testDBURL, adminURL); err != nil {
+			return fmt.Errorf("dropping test database: %w", err)
+		}
+
+		fmt.Printf("Creating test database '%s'...\n", testDBName)
+		if err := m.Create(ctx, testDBURL, adminURL); err != nil {
+			return fmt.Errorf("creating test database: %w", err)
+		}
+
+		fmt.Println("Setting up test database permissions...")
+		if err := m.SetupPermissions(ctx, testDBURL, adminURL); err != nil {
+			return fmt.Errorf("setting up test database permissions: %w", err)
+		}
 	}
 
 	return nil

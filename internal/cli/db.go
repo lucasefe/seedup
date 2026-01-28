@@ -100,20 +100,24 @@ func newDBCreateCmd() *cobra.Command {
 
 func newDBSetupCmd() *cobra.Command {
 	var force bool
+	var noTest bool
 
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Create database with user and permissions",
 		Long: `Database setup: create user, drop (if exists), create database, set permissions.
 
+By default, also creates a test database ({dbname}_test) with the same setup.
+Use --no-test to skip test database creation.
+
 This command only sets up the database infrastructure. To apply migrations
 and seed data, run them separately:
 
-  seedup db setup           # Create the database
-  seedup seed apply dev     # Apply seed (runs initial migration + loads seed data)
-  seedup migrate up         # Run remaining migrations
+  seedup db setup           # Create main and test databases
+  seedup seed apply dev     # Apply seed to main database
+  seedup migrate up         # Run migrations (on main, then use env var for test)
 
-This is a destructive operation that will drop and recreate the database.`,
+This is a destructive operation that will drop and recreate the databases.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dbURL := getDatabaseURL()
 			if dbURL == "" {
@@ -137,6 +141,7 @@ This is a destructive operation that will drop and recreate the database.`,
 			opts := db.SetupOptions{
 				DatabaseURL: dbURL,
 				AdminURL:    adminURL,
+				SkipTestDB:  noTest,
 			}
 
 			if err := m.Setup(context.Background(), opts); err != nil {
@@ -149,6 +154,7 @@ This is a destructive operation that will drop and recreate the database.`,
 	}
 
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation prompt")
+	cmd.Flags().BoolVar(&noTest, "no-test", false, "Skip creating the test database")
 	return cmd
 }
 
