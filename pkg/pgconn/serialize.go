@@ -256,17 +256,14 @@ func SerializeValue(value interface{}, pgType string) string {
 }
 
 // QuoteString properly escapes a string for PostgreSQL SQL literals.
+//
+// It relies on standard_conforming_strings (on by default since PostgreSQL
+// 9.1), where a backslash inside a plain '...' literal is a literal backslash.
+// This matters for JSON values like {"body":"a\nb"}: the two characters \n must
+// survive as \n. Using E'...' would collapse \n into a newline byte and produce
+// invalid JSON, so we never use E'' here — only single quotes are doubled.
 func QuoteString(s string) string {
-	// Check if we need E'' syntax for escape sequences
-	needsEscape := strings.Contains(s, "\\")
-
-	// Escape single quotes by doubling them
 	escaped := strings.ReplaceAll(s, "'", "''")
-
-	if needsEscape {
-		// Use E'' syntax for strings containing backslashes
-		return fmt.Sprintf("E'%s'", escaped)
-	}
 	return fmt.Sprintf("'%s'", escaped)
 }
 

@@ -510,9 +510,24 @@ func dumpSequences(ctx context.Context, db *sql.DB, _ map[string]bool) ([]string
 	return results, rows.Err()
 }
 
-// dumpFunctionsEarly dumps functions that use PL/pgSQL or other late-binding languages.
-// These can be created before tables since they don't validate table references at creation time.
-// This is needed for table DEFAULT expressions that reference these functions.
+// funcReferencedByColumnExpr matches functions that a column DEFAULT or
+// GENERATED expression depends on (the dependency is recorded via pg_attrdef).
+// Such functions must exist before the tables are created, regardless of the
+// function's language.
+const funcReferencedByColumnExpr = `
+		EXISTS (
+		    SELECT 1
+		    FROM pg_depend d
+		    JOIN pg_attrdef ad ON ad.oid = d.objid
+		    WHERE d.refobjid = p.oid
+		      AND d.refclassid = 'pg_proc'::regclass
+		      AND d.classid = 'pg_attrdef'::regclass
+		)`
+
+// dumpFunctionsEarly dumps functions that must be created before tables:
+// non-SQL functions (PL/pgSQL etc. don't validate table references at creation
+// time and may be used by DEFAULT expressions) and any function — including SQL
+// functions — that a column DEFAULT or GENERATED expression depends on.
 func dumpFunctionsEarly(ctx context.Context, db *sql.DB) ([]string, error) {
 	query := `
 		SELECT n.nspname as schema,
@@ -525,7 +540,7 @@ func dumpFunctionsEarly(ctx context.Context, db *sql.DB) ([]string, error) {
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		  AND p.prokind IN ('f', 'p')  -- functions and procedures
-		  AND l.lanname != 'sql'  -- exclude SQL functions (they validate table refs at creation)
+		  AND (l.lanname != 'sql' OR ` + funcReferencedByColumnExpr + `)
 		  AND NOT EXISTS (
 		      SELECT 1 FROM pg_depend d
 		      WHERE d.objid = p.oid
@@ -552,8 +567,10 @@ func dumpFunctionsEarly(ctx context.Context, db *sql.DB) ([]string, error) {
 	return results, rows.Err()
 }
 
-// dumpFunctionsLate dumps SQL language functions.
-// These must be created after tables since SQL functions validate table references at creation time.
+// dumpFunctionsLate dumps SQL language functions that are not needed before
+// tables. These validate table references at creation time, so they must come
+// after tables. SQL functions referenced by a column DEFAULT/GENERATED
+// expression are handled by dumpFunctionsEarly instead and excluded here.
 func dumpFunctionsLate(ctx context.Context, db *sql.DB) ([]string, error) {
 	query := `
 		SELECT n.nspname as schema,
@@ -567,6 +584,7 @@ func dumpFunctionsLate(ctx context.Context, db *sql.DB) ([]string, error) {
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		  AND p.prokind IN ('f', 'p')  -- functions and procedures
 		  AND l.lanname = 'sql'  -- only SQL functions
+		  AND NOT ` + funcReferencedByColumnExpr + `
 		  AND NOT EXISTS (
 		      SELECT 1 FROM pg_depend d
 		      WHERE d.objid = p.oid
@@ -661,14 +679,24 @@ func dumpTables(ctx context.Context, db *sql.DB, excludeSet map[string]bool) ([]
 			return nil, fmt.Errorf("querying generated columns for %s.%s: %w", schema, tableName, err)
 		}
 
-		// Get columns for this table
+		// Get columns for this table. format_type resolves the fully
+		// schema-qualified type, including array element types in non-public
+		// schemas (e.g. caregiver.checkin_call_topic[]), which the
+		// information_schema udt_name column gets wrong (it returns the bare
+		// internal array name like _checkin_call_topic).
 		columnsQuery := `
-			SELECT column_name, data_type, character_maximum_length,
-			       is_nullable, column_default, udt_schema, udt_name,
-			       numeric_precision, numeric_scale
-			FROM information_schema.columns
-			WHERE table_schema = $1 AND table_name = $2
-			ORDER BY ordinal_position
+			SELECT a.attname AS column_name,
+			       format_type(a.atttypid, a.atttypmod) AS data_type,
+			       CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+			       pg_get_expr(ad.adbin, ad.adrelid) AS column_default
+			FROM pg_attribute a
+			JOIN pg_class c ON c.oid = a.attrelid
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			LEFT JOIN pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
+			WHERE n.nspname = $1 AND c.relname = $2
+			  AND a.attnum > 0
+			  AND NOT a.attisdropped
+			ORDER BY a.attnum
 		`
 
 		colRows, err := db.QueryContext(ctx, columnsQuery, schema, tableName)
@@ -678,52 +706,15 @@ func dumpTables(ctx context.Context, db *sql.DB, excludeSet map[string]bool) ([]
 
 		var columns []string
 		for colRows.Next() {
-			var colName, dataType, udtSchema, udtName string
-			var charMaxLen, numPrecision, numScale sql.NullInt64
+			var colName, dataType string
 			var isNullable, colDefault sql.NullString
 
-			if err := colRows.Scan(&colName, &dataType, &charMaxLen, &isNullable, &colDefault, &udtSchema, &udtName, &numPrecision, &numScale); err != nil {
+			if err := colRows.Scan(&colName, &dataType, &isNullable, &colDefault); err != nil {
 				colRows.Close()
 				return nil, fmt.Errorf("scanning column: %w", err)
 			}
 
-			colDef := QuoteIdentifier(colName) + " "
-
-			// Determine the type string
-			switch dataType {
-			case "character varying":
-				if charMaxLen.Valid {
-					colDef += fmt.Sprintf("varchar(%d)", charMaxLen.Int64)
-				} else {
-					colDef += "varchar"
-				}
-			case "character":
-				if charMaxLen.Valid {
-					colDef += fmt.Sprintf("char(%d)", charMaxLen.Int64)
-				} else {
-					colDef += "char"
-				}
-			case "numeric":
-				if numPrecision.Valid && numScale.Valid {
-					colDef += fmt.Sprintf("numeric(%d,%d)", numPrecision.Int64, numScale.Int64)
-				} else if numPrecision.Valid {
-					colDef += fmt.Sprintf("numeric(%d)", numPrecision.Int64)
-				} else {
-					colDef += "numeric"
-				}
-			case "ARRAY":
-				// Use udt_name which includes the array indicator (e.g., _text for text[])
-				colDef += udtName
-			case "USER-DEFINED":
-				// Custom type like enum or composite - use schema-qualified name
-				if udtSchema != "public" {
-					colDef += udtSchema + "." + udtName
-				} else {
-					colDef += udtName
-				}
-			default:
-				colDef += dataType
-			}
+			colDef := QuoteIdentifier(colName) + " " + dataType
 
 			// Check if this is a generated column
 			if genExpr, isGenerated := generatedCols[colName]; isGenerated {
