@@ -42,6 +42,8 @@ Configuration is done via environment variables or CLI flags:
 	rootCmd.AddCommand(newCheckCmd())
 	rootCmd.AddCommand(newDBCmd())
 	rootCmd.AddCommand(newDBMLCmd())
+	rootCmd.AddCommand(newStatsCmd())
+	rootCmd.AddCommand(newPlanCheckCmd())
 
 	return rootCmd
 }
