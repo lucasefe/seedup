@@ -35,11 +35,14 @@ type Options struct {
 	MinDelta         float64  // Minimum absolute cost increase to count as a regression
 }
 
+// newViewBaseline marks a Result whose view has no baseline entry yet.
+const newViewBaseline = -1
+
 // Result is the outcome for a single view.
 type Result struct {
 	View     string
 	Cost     float64
-	Baseline float64 // -1 when the view is new
+	Baseline float64 // newViewBaseline when the view is new
 	Failed   bool
 }
 
@@ -84,45 +87,61 @@ func (c *Checker) Check(ctx context.Context, dbURL string, opts Options) error {
 	}
 
 	results := make([]Result, 0, len(views))
-	current := map[string]float64{}
-	for _, v := range views {
-		cost, err := planCost(ctx, db, v)
+	currentCosts := map[string]float64{}
+	for _, view := range views {
+		result, err := c.evaluateView(ctx, db, view, baseline, opts)
 		if err != nil {
-			return fmt.Errorf("explaining %s: %w", v, err)
+			return err
 		}
-		current[v] = cost
-
-		base, ok := baseline[v]
-		r := Result{View: v, Cost: cost, Baseline: -1}
-		if ok {
-			r.Baseline = base
-		}
-		r.Failed = !opts.UpdateBaseline && failsBudget(cost, base, ok, opts.MaxCost, opts.RegressionFactor, opts.MinDelta)
-		results = append(results, r)
+		currentCosts[view] = result.Cost
+		results = append(results, result)
 	}
 
 	printResults(results)
 
 	if opts.UpdateBaseline {
-		if err := writeBaseline(opts.BaselineFile, current); err != nil {
+		if err := writeBaseline(opts.BaselineFile, currentCosts); err != nil {
 			return err
 		}
-		fmt.Printf("Wrote baseline for %d views to %s\n", len(current), opts.BaselineFile)
+		fmt.Printf("Wrote baseline for %d views to %s\n", len(currentCosts), opts.BaselineFile)
 		return nil
 	}
 
-	var failed []string
-	for _, r := range results {
-		if r.Failed {
-			failed = append(failed, r.View)
+	return regressionError(results)
+}
+
+// evaluateView plans a single view and decides whether its cost breaches the
+// budget relative to the baseline.
+func (c *Checker) evaluateView(ctx context.Context, db *sql.DB, view string, baseline map[string]float64, opts Options) (Result, error) {
+	cost, err := planCost(ctx, db, view)
+	if err != nil {
+		return Result{}, fmt.Errorf("explaining %s: %w", view, err)
+	}
+
+	baselineCost, hasBaseline := baseline[view]
+	result := Result{View: view, Cost: cost, Baseline: newViewBaseline}
+	if hasBaseline {
+		result.Baseline = baselineCost
+	}
+	result.Failed = !opts.UpdateBaseline &&
+		failsBudget(cost, baselineCost, hasBaseline, opts.MaxCost, opts.RegressionFactor, opts.MinDelta)
+	return result, nil
+}
+
+// regressionError builds the failure returned when any view breached the budget.
+func regressionError(results []Result) error {
+	var regressed []string
+	for _, result := range results {
+		if result.Failed {
+			regressed = append(regressed, result.View)
 		}
 	}
-	if len(failed) > 0 {
-		return fmt.Errorf("%d view(s) exceeded the plan-cost budget: %s\n"+
-			"If the change is intentional, refresh the baseline (e.g. `make plancheck-baseline`).",
-			len(failed), strings.Join(failed, ", "))
+	if len(regressed) == 0 {
+		return nil
 	}
-	return nil
+	return fmt.Errorf("%d view(s) exceeded the plan-cost budget: %s\n"+
+		"If the change is intentional, refresh the baseline (e.g. `make plancheck-baseline`).",
+		len(regressed), strings.Join(regressed, ", "))
 }
 
 func (c *Checker) views(ctx context.Context, db *sql.DB, schemas, exclude []string) ([]string, error) {
@@ -252,7 +271,7 @@ func printResults(results []Result) {
 			status = "FAIL"
 		}
 		base := "new"
-		if r.Baseline >= 0 {
+		if r.Baseline != newViewBaseline {
 			base = fmt.Sprintf("%.0f", r.Baseline)
 		}
 		fmt.Printf("  [%-4s] %-45s cost=%.0f baseline=%s\n", status, r.View, r.Cost, base)
