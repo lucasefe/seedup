@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/lib/pq"
 	"github.com/lucasefe/seedup/pkg/pgconn"
 )
 
@@ -140,7 +141,7 @@ func regressionError(results []Result) error {
 		return nil
 	}
 	return fmt.Errorf("%d view(s) exceeded the plan-cost budget: %s\n"+
-		"If the change is intentional, refresh the baseline (e.g. `make plancheck-baseline`).",
+		"If the change is intentional, refresh the baseline with --update-baseline.",
 		len(regressed), strings.Join(regressed, ", "))
 }
 
@@ -151,7 +152,7 @@ WHERE schemaname NOT IN ('pg_catalog', 'information_schema')`
 	var args []any
 	if len(schemas) > 0 {
 		query += " AND schemaname = ANY($1)"
-		args = append(args, pqArray(schemas))
+		args = append(args, pq.Array(schemas))
 	}
 	query += `
 UNION ALL
@@ -189,7 +190,7 @@ WHERE schemaname NOT IN ('pg_catalog', 'information_schema')`
 
 func planCost(ctx context.Context, db *sql.DB, qualified string) (float64, error) {
 	schema, name, _ := strings.Cut(qualified, ".")
-	q := fmt.Sprintf(`EXPLAIN (FORMAT JSON) SELECT * FROM %s.%s`, quoteIdent(schema), quoteIdent(name))
+	q := fmt.Sprintf(`EXPLAIN (FORMAT JSON) SELECT * FROM %s.%s`, pq.QuoteIdentifier(schema), pq.QuoteIdentifier(name))
 
 	var raw []byte
 	if err := db.QueryRowContext(ctx, q).Scan(&raw); err != nil {
@@ -276,16 +277,4 @@ func printResults(results []Result) {
 		}
 		fmt.Printf("  [%-4s] %-45s cost=%.0f baseline=%s\n", status, r.View, r.Cost, base)
 	}
-}
-
-func quoteIdent(s string) string {
-	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
-}
-
-func pqArray(vals []string) string {
-	quoted := make([]string, len(vals))
-	for i, v := range vals {
-		quoted[i] = `"` + strings.ReplaceAll(v, `"`, `\"`) + `"`
-	}
-	return "{" + strings.Join(quoted, ",") + "}"
 }

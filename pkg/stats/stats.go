@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/lib/pq"
 	"github.com/lucasefe/seedup/pkg/pgconn"
 )
 
@@ -108,7 +109,7 @@ func (r relation) sql(version int) string {
 			"  'reltuples', %g::real,\n"+
 			"  'relallvisible', %d::integer,\n"+
 			"  'version', %d::integer);\n",
-		sqlStr(r.schema), sqlStr(r.name), r.relpages, r.reltuples, r.relallvisible, version)
+		pq.QuoteLiteral(r.schema), pq.QuoteLiteral(r.name), r.relpages, r.reltuples, r.relallvisible, version)
 }
 
 func (d *Dumper) relations(ctx context.Context, db *sql.DB, schemas []string) ([]relation, error) {
@@ -122,7 +123,7 @@ WHERE c.relkind IN ('r', 'p')
 	var args []any
 	if len(schemas) > 0 {
 		query += " AND n.nspname = ANY($1)"
-		args = append(args, pqArray(schemas))
+		args = append(args, pq.Array(schemas))
 	}
 	query += " ORDER BY n.nspname, c.relname"
 
@@ -162,7 +163,7 @@ func (a attribute) sql(schema, table string, version int) string {
 			"  'avg_width', %d::integer,\n"+
 			"  'n_distinct', %g::real,\n"+
 			"  'version', %d::integer);\n",
-		sqlStr(schema), sqlStr(table), sqlStr(a.name), a.inherited,
+		pq.QuoteLiteral(schema), pq.QuoteLiteral(table), pq.QuoteLiteral(a.name), a.inherited,
 		a.nullFrac, a.avgWidth, a.nDistinct, version)
 }
 
@@ -186,18 +187,4 @@ ORDER BY attname`, schema, table)
 		out = append(out, a)
 	}
 	return out, rows.Err()
-}
-
-// sqlStr renders a Go string as a single-quoted SQL literal.
-func sqlStr(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
-}
-
-// pqArray formats a string slice as a Postgres text array literal for lib/pq.
-func pqArray(vals []string) string {
-	quoted := make([]string, len(vals))
-	for i, v := range vals {
-		quoted[i] = `"` + strings.ReplaceAll(v, `"`, `\"`) + `"`
-	}
-	return "{" + strings.Join(quoted, ",") + "}"
 }
