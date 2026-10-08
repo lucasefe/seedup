@@ -118,18 +118,7 @@ func DumpSchema(ctx context.Context, db *sql.DB, excludeTables []string) (string
 		parts = append(parts, "")
 	}
 
-	// 10. Dump views
-	views, err := dumpViews(ctx, db, excludeSet)
-	if err != nil {
-		return "", fmt.Errorf("dumping views: %w", err)
-	}
-	if len(views) > 0 {
-		parts = append(parts, "-- Views")
-		parts = append(parts, views...)
-		parts = append(parts, "")
-	}
-
-	// 11. Dump primary keys
+	// 10. Dump primary keys
 	pks, err := dumpPrimaryKeys(ctx, db, excludeSet)
 	if err != nil {
 		return "", fmt.Errorf("dumping primary keys: %w", err)
@@ -140,7 +129,7 @@ func DumpSchema(ctx context.Context, db *sql.DB, excludeTables []string) (string
 		parts = append(parts, "")
 	}
 
-	// 12. Dump unique constraints
+	// 11. Dump unique constraints
 	uniques, err := dumpUniqueConstraints(ctx, db, excludeSet)
 	if err != nil {
 		return "", fmt.Errorf("dumping unique constraints: %w", err)
@@ -148,6 +137,19 @@ func DumpSchema(ctx context.Context, db *sql.DB, excludeTables []string) (string
 	if len(uniques) > 0 {
 		parts = append(parts, "-- Unique constraints")
 		parts = append(parts, uniques...)
+		parts = append(parts, "")
+	}
+
+	// 12. Dump views (after PKs and unique constraints: views that GROUP BY a
+	// key column and select non-aggregated columns rely on the functional
+	// dependency existing at CREATE VIEW time)
+	views, err := dumpViews(ctx, db, excludeSet)
+	if err != nil {
+		return "", fmt.Errorf("dumping views: %w", err)
+	}
+	if len(views) > 0 {
+		parts = append(parts, "-- Views")
+		parts = append(parts, views...)
 		parts = append(parts, "")
 	}
 
