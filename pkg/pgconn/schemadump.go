@@ -967,18 +967,23 @@ func dumpForeignKeys(ctx context.Context, db *sql.DB, excludeSet map[string]bool
 }
 
 func dumpIndexes(ctx context.Context, db *sql.DB, excludeSet map[string]bool) ([]string, error) {
-	// Get indexes that are not backing constraints
+	// Get indexes that are not backing constraints. Within a table, keep the
+	// original creation order (OID): when an INSERT violates several unique
+	// indexes, Postgres reports the oldest one, so recreating them in a
+	// different order changes which error callers see.
 	query := `
-		SELECT schemaname, tablename, indexname, indexdef
+		SELECT pg_indexes.schemaname, pg_indexes.tablename, pg_indexes.indexname, pg_indexes.indexdef
 		FROM pg_indexes
-		WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-		  AND schemaname NOT LIKE 'pg_temp_%'
-		  AND schemaname NOT LIKE 'pg_toast_temp_%'
-		  AND indexname NOT IN (
+		JOIN pg_namespace ON pg_namespace.nspname = pg_indexes.schemaname
+		JOIN pg_class ON pg_class.relname = pg_indexes.indexname AND pg_class.relnamespace = pg_namespace.oid
+		WHERE pg_indexes.schemaname NOT IN ('pg_catalog', 'information_schema')
+		  AND pg_indexes.schemaname NOT LIKE 'pg_temp_%'
+		  AND pg_indexes.schemaname NOT LIKE 'pg_toast_temp_%'
+		  AND pg_indexes.indexname NOT IN (
 		      SELECT conname FROM pg_constraint
 		      WHERE contype IN ('p', 'u', 'x')
 		  )
-		ORDER BY schemaname, tablename, indexname
+		ORDER BY pg_indexes.schemaname, pg_indexes.tablename, pg_class.oid
 	`
 
 	rows, err := db.QueryContext(ctx, query)
