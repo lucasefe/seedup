@@ -85,6 +85,18 @@ type SeedCreateOptions struct {
 	// MigrationsDir specifies the migrations directory for flatten.
 	// Required unless NoFlatten is true.
 	MigrationsDir string
+	// ExcludeExtensions lists extensions to leave out of the flattened
+	// migration, along with any schema that exists only to hold them. Use it
+	// for extensions the source database has but the target cannot install,
+	// such as aiven_extras on Aiven.
+	ExcludeExtensions []string
+}
+
+// FlattenOptions configures migration flattening.
+type FlattenOptions struct {
+	// ExcludeExtensions lists extensions to leave out of the flattened
+	// migration, along with any schema that exists only to hold them.
+	ExcludeExtensions []string
 }
 
 // DBOptions configures database operations.
@@ -228,7 +240,7 @@ func SeedCreate(ctx context.Context, dbURL, seedDir, queryFile string, opts Seed
 		}
 		defer conn.Close()
 
-		f := migrate.NewFlattener(conn)
+		f := migrate.NewFlattener(conn, migrate.WithExcludeExtensions(opts.ExcludeExtensions))
 		if err := f.Flatten(ctx, opts.MigrationsDir); err != nil {
 			return fmt.Errorf("flattening migrations: %w", err)
 		}
@@ -294,15 +306,17 @@ func DBSetup(ctx context.Context, opts DBSetupOptions) error {
 //
 // Example:
 //
-//	err := seedup.Flatten(ctx, dbURL, "./migrations")
-func Flatten(ctx context.Context, dbURL, migrationsDir string) error {
+//	err := seedup.Flatten(ctx, dbURL, "./migrations", seedup.FlattenOptions{
+//	    ExcludeExtensions: []string{"aiven_extras"},
+//	})
+func Flatten(ctx context.Context, dbURL, migrationsDir string, opts FlattenOptions) error {
 	conn, err := pgconn.Open(dbURL)
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
 	defer conn.Close()
 
-	f := migrate.NewFlattener(conn)
+	f := migrate.NewFlattener(conn, migrate.WithExcludeExtensions(opts.ExcludeExtensions))
 	return f.Flatten(ctx, migrationsDir)
 }
 

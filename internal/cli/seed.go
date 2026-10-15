@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/lucasefe/seedup/pkg/migrate"
 	"github.com/lucasefe/seedup/pkg/pgconn"
@@ -82,7 +81,8 @@ data you want to include in the seed. Each table in the database has a correspon
 temp table named "seed.<schema>.<table>" that you should INSERT INTO.
 
 Example:
-  seedup seed create dev -d postgres://user:pass@localhost/production_db`,
+  seedup seed create dev -d postgres://user:pass@localhost/production_db
+  seedup seed create dev -d postgres://... --all-schemas --exclude-extensions aiven_extras`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
@@ -100,20 +100,9 @@ Example:
 			// Seed query file: ./seed/<name>/dump.sql
 			queryFile := filepath.Join(dir, "dump.sql")
 
-			// Parse schemas flag
-			var schemaList []string
-			if schemas != "" {
-				for _, s := range strings.Split(schemas, ",") {
-					s = strings.TrimSpace(s)
-					if s != "" {
-						schemaList = append(schemaList, s)
-					}
-				}
-			}
-
 			opts := seed.CreateOptions{
 				DryRun:     dryRun,
-				Schemas:    schemaList,
+				Schemas:    splitList(schemas),
 				AllSchemas: allSchemas,
 			}
 
@@ -130,7 +119,7 @@ Example:
 				}
 				defer db.Close()
 
-				f := migrate.NewFlattener(db)
+				f := migrate.NewFlattener(db, migrate.WithExcludeExtensions(getExcludeExtensions()))
 				if err := f.Flatten(context.Background(), getMigrationsDir()); err != nil {
 					return fmt.Errorf("flattening migrations: %w", err)
 				}
@@ -145,6 +134,7 @@ Example:
 	cmd.Flags().StringVar(&schemas, "schemas", "", "Comma-separated list of schemas to include (default: public)")
 	cmd.Flags().BoolVarP(&allSchemas, "all-schemas", "a", false, "Include all non-system schemas")
 	cmd.Flags().BoolVar(&noFlatten, "no-flatten", false, "Skip flattening migrations after seed creation")
+	addExcludeExtensionsFlag(cmd)
 
 	return cmd
 }

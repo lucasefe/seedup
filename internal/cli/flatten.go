@@ -10,7 +10,7 @@ import (
 )
 
 func newFlattenCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "flatten",
 		Short: "Flatten migrations into a single initial migration",
 		Long: `Flatten all applied migrations into a single initial migration.
@@ -32,7 +32,7 @@ This is useful for:
 			}
 			defer db.Close()
 
-			f := migrate.NewFlattener(db)
+			f := migrate.NewFlattener(db, migrate.WithExcludeExtensions(getExcludeExtensions()))
 
 			fmt.Println("Flattening migrations...")
 			if err := f.Flatten(context.Background(), getMigrationsDir()); err != nil {
@@ -43,4 +43,8 @@ This is useful for:
 			return nil
 		},
 	}
+
+	addExcludeExtensionsFlag(cmd)
+
+	return cmd
 }

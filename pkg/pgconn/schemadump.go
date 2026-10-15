@@ -5,21 +5,52 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/lib/pq"
 )
+
+// DumpOptions configures DumpSchema.
+type DumpOptions struct {
+	// ExcludeTables lists tables to leave out, as "name" or "schema.name".
+	ExcludeTables []string
+	// ExcludeExtensions lists extensions to leave out, along with any schema
+	// that exists only to hold them. Use it for extensions the source database
+	// has but the target cannot install, such as aiven_extras on Aiven.
+	ExcludeExtensions []string
+}
+
+// extensionMember matches rows of catalog that belong to an extension.
+// CREATE EXTENSION recreates those, so dumping them separately would fail
+// with "already exists"; every dump query filters them out.
+func extensionMember(catalog, oid string) string {
+	return fmt.Sprintf(`EXISTS (
+		      SELECT 1 FROM pg_depend dep
+		      WHERE dep.classid = '%s'::regclass
+		        AND dep.objid = %s
+		        AND dep.deptype = 'e'
+		  )`, catalog, oid)
+}
 
 // DumpSchema dumps the database schema to SQL DDL statements.
 // It returns SQL that can recreate the schema (excluding data).
-func DumpSchema(ctx context.Context, db *sql.DB, excludeTables []string) (string, error) {
+func DumpSchema(ctx context.Context, db *sql.DB, opts DumpOptions) (string, error) {
 	var parts []string
 
 	// Build set of excluded tables for quick lookup
 	excludeSet := make(map[string]bool)
-	for _, t := range excludeTables {
+	for _, t := range opts.ExcludeTables {
 		excludeSet[t] = true
 	}
 
+	// A nil slice binds as SQL NULL, and "x <> ALL(NULL)" is NULL rather than
+	// true, which would drop every extension. Bind an empty array instead.
+	excludeExtensions := opts.ExcludeExtensions
+	if excludeExtensions == nil {
+		excludeExtensions = []string{}
+	}
+
 	// 1. Dump schemas (non-system)
-	schemas, err := dumpSchemas(ctx, db)
+	schemas, err := dumpSchemas(ctx, db, excludeExtensions)
 	if err != nil {
 		return "", fmt.Errorf("dumping schemas: %w", err)
 	}
@@ -30,7 +61,7 @@ func DumpSchema(ctx context.Context, db *sql.DB, excludeTables []string) (string
 	}
 
 	// 2. Dump extensions
-	extensions, err := dumpExtensions(ctx, db)
+	extensions, err := dumpExtensions(ctx, db, excludeExtensions)
 	if err != nil {
 		return "", fmt.Errorf("dumping extensions: %w", err)
 	}
@@ -200,18 +231,47 @@ func DumpSchema(ctx context.Context, db *sql.DB, excludeTables []string) (string
 	return strings.Join(parts, "\n"), nil
 }
 
-func dumpSchemas(ctx context.Context, db *sql.DB) ([]string, error) {
+func dumpSchemas(ctx context.Context, db *sql.DB, excludeExtensions []string) ([]string, error) {
+	// A schema that holds nothing but excluded extensions is skipped as well:
+	// the extension created it, and nothing else in the dump refers to it.
+	// "Nothing but" checks the catalogs whose rows carry their own extension
+	// membership: relations, functions, and standalone types (rowtypes and
+	// array types ride on their relation or element type instead).
 	query := `
-		SELECT nspname
-		FROM pg_namespace
-		WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pg_temp_1', 'pg_toast_temp_1')
-		  AND nspname NOT LIKE 'pg_temp_%'
-		  AND nspname NOT LIKE 'pg_toast_temp_%'
-		  AND nspname != 'public'
-		ORDER BY nspname
+		SELECT n.nspname
+		FROM pg_namespace n
+		WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pg_temp_1', 'pg_toast_temp_1')
+		  AND n.nspname NOT LIKE 'pg_temp_%'
+		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
+		  AND n.nspname != 'public'
+		  AND NOT (
+		      EXISTS (
+		          SELECT 1 FROM pg_extension e
+		          WHERE e.extnamespace = n.oid AND e.extname = ANY($1)
+		      )
+		      AND NOT EXISTS (
+		          SELECT 1 FROM pg_class c
+		          WHERE c.relnamespace = n.oid
+		            AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+		            AND NOT ` + extensionMember("pg_class", "c.oid") + `
+		      )
+		      AND NOT EXISTS (
+		          SELECT 1 FROM pg_proc p
+		          WHERE p.pronamespace = n.oid
+		            AND NOT ` + extensionMember("pg_proc", "p.oid") + `
+		      )
+		      AND NOT EXISTS (
+		          SELECT 1 FROM pg_type t
+		          WHERE t.typnamespace = n.oid
+		            AND t.typtype IN ('e', 'd', 'c')
+		            AND NOT EXISTS (SELECT 1 FROM pg_class r WHERE r.oid = t.typrelid AND r.relkind <> 'c')
+		            AND NOT ` + extensionMember("pg_type", "t.oid") + `
+		      )
+		  )
+		ORDER BY n.nspname
 	`
 
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, query, pq.Array(excludeExtensions))
 	if err != nil {
 		return nil, err
 	}
@@ -229,16 +289,17 @@ func dumpSchemas(ctx context.Context, db *sql.DB) ([]string, error) {
 	return results, rows.Err()
 }
 
-func dumpExtensions(ctx context.Context, db *sql.DB) ([]string, error) {
+func dumpExtensions(ctx context.Context, db *sql.DB, excludeExtensions []string) ([]string, error) {
 	query := `
 		SELECT extname, n.nspname
 		FROM pg_extension e
 		JOIN pg_namespace n ON e.extnamespace = n.oid
 		WHERE extname != 'plpgsql'
+		  AND extname <> ALL($1)
 		ORDER BY extname
 	`
 
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, query, pq.Array(excludeExtensions))
 	if err != nil {
 		return nil, err
 	}
@@ -268,6 +329,7 @@ func dumpEnums(ctx context.Context, db *sql.DB) ([]string, error) {
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
+		  AND NOT ` + extensionMember("pg_type", "t.oid") + `
 		GROUP BY n.nspname, t.typname
 		ORDER BY n.nspname, t.typname
 	`
@@ -324,6 +386,7 @@ func dumpDomains(ctx context.Context, db *sql.DB) ([]string, error) {
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
+		  AND NOT ` + extensionMember("pg_type", "t.oid") + `
 		ORDER BY n.nspname, t.typname
 	`
 
@@ -401,6 +464,7 @@ func dumpCompositeTypes(ctx context.Context, db *sql.DB) ([]string, error) {
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		  AND NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.reltype = t.oid AND c.relkind IN ('r', 'v'))
+		  AND NOT ` + extensionMember("pg_type", "t.oid") + `
 		ORDER BY n.nspname, t.typname
 	`
 
@@ -458,13 +522,16 @@ func dumpCompositeTypes(ctx context.Context, db *sql.DB) ([]string, error) {
 
 func dumpSequences(ctx context.Context, db *sql.DB, _ map[string]bool) ([]string, error) {
 	query := `
-		SELECT schemaname, sequencename, start_value, increment_by, max_value, min_value, cache_size, cycle
-		FROM pg_sequences
-		WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-		  AND schemaname NOT LIKE 'pg_temp_%'
-		  AND schemaname NOT LIKE 'pg_toast_temp_%'
-		  AND sequencename NOT LIKE 'goose_%'
-		ORDER BY schemaname, sequencename
+		SELECT s.schemaname, s.sequencename, s.start_value, s.increment_by, s.max_value, s.min_value, s.cache_size, s.cycle
+		FROM pg_sequences s
+		JOIN pg_namespace n ON n.nspname = s.schemaname
+		JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = s.sequencename
+		WHERE s.schemaname NOT IN ('pg_catalog', 'information_schema')
+		  AND s.schemaname NOT LIKE 'pg_temp_%'
+		  AND s.schemaname NOT LIKE 'pg_toast_temp_%'
+		  AND s.sequencename NOT LIKE 'goose_%'
+		  AND NOT ` + extensionMember("pg_class", "c.oid") + `
+		ORDER BY s.schemaname, s.sequencename
 	`
 
 	rows, err := db.QueryContext(ctx, query)
@@ -543,11 +610,7 @@ func dumpFunctionsEarly(ctx context.Context, db *sql.DB) ([]string, error) {
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
 		  AND p.prokind IN ('f', 'p')  -- functions and procedures
 		  AND (l.lanname != 'sql' OR ` + funcReferencedByColumnExpr + `)
-		  AND NOT EXISTS (
-		      SELECT 1 FROM pg_depend d
-		      WHERE d.objid = p.oid
-		        AND d.deptype = 'e'
-		  )
+		  AND NOT ` + extensionMember("pg_proc", "p.oid") + `
 		ORDER BY n.nspname, p.proname, p.oid
 	`
 
@@ -587,11 +650,7 @@ func dumpFunctionsLate(ctx context.Context, db *sql.DB) ([]string, error) {
 		  AND p.prokind IN ('f', 'p')  -- functions and procedures
 		  AND l.lanname = 'sql'  -- only SQL functions
 		  AND NOT ` + funcReferencedByColumnExpr + `
-		  AND NOT EXISTS (
-		      SELECT 1 FROM pg_depend d
-		      WHERE d.objid = p.oid
-		        AND d.deptype = 'e'
-		  )
+		  AND NOT ` + extensionMember("pg_proc", "p.oid") + `
 		ORDER BY n.nspname, p.proname, p.oid
 	`
 
@@ -648,13 +707,16 @@ func getGeneratedColumns(ctx context.Context, db *sql.DB, schema, table string) 
 func dumpTables(ctx context.Context, db *sql.DB, excludeSet map[string]bool) ([]string, error) {
 	// Get all tables
 	tablesQuery := `
-		SELECT schemaname, tablename
-		FROM pg_tables
-		WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-		  AND schemaname NOT LIKE 'pg_temp_%'
-		  AND schemaname NOT LIKE 'pg_toast_temp_%'
-		  AND tablename NOT LIKE 'goose_%'
-		ORDER BY schemaname, tablename
+		SELECT n.nspname, c.relname
+		FROM pg_class c
+		JOIN pg_namespace n ON c.relnamespace = n.oid
+		WHERE c.relkind IN ('r', 'p')
+		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+		  AND n.nspname NOT LIKE 'pg_temp_%'
+		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
+		  AND c.relname NOT LIKE 'goose_%'
+		  AND NOT ` + extensionMember("pg_class", "c.oid") + `
+		ORDER BY n.nspname, c.relname
 	`
 
 	tableRows, err := db.QueryContext(ctx, tablesQuery)
@@ -754,12 +816,15 @@ func dumpTables(ctx context.Context, db *sql.DB, excludeSet map[string]bool) ([]
 
 func dumpViews(ctx context.Context, db *sql.DB, excludeSet map[string]bool) ([]string, error) {
 	query := `
-		SELECT schemaname, viewname, definition
-		FROM pg_views
-		WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-		  AND schemaname NOT LIKE 'pg_temp_%'
-		  AND schemaname NOT LIKE 'pg_toast_temp_%'
-		ORDER BY schemaname, viewname
+		SELECT n.nspname, c.relname, pg_get_viewdef(c.oid)
+		FROM pg_class c
+		JOIN pg_namespace n ON c.relnamespace = n.oid
+		WHERE c.relkind = 'v'
+		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+		  AND n.nspname NOT LIKE 'pg_temp_%'
+		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
+		  AND NOT ` + extensionMember("pg_class", "c.oid") + `
+		ORDER BY n.nspname, c.relname
 	`
 
 	rows, err := db.QueryContext(ctx, query)
@@ -802,6 +867,7 @@ func dumpPrimaryKeys(ctx context.Context, db *sql.DB, excludeSet map[string]bool
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
+		  AND NOT ` + extensionMember("pg_class", "c.oid") + `
 		ORDER BY n.nspname, c.relname, con.conname
 	`
 
@@ -846,6 +912,7 @@ func dumpUniqueConstraints(ctx context.Context, db *sql.DB, excludeSet map[strin
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
+		  AND NOT ` + extensionMember("pg_class", "c.oid") + `
 		ORDER BY n.nspname, c.relname, con.conname
 	`
 
@@ -890,6 +957,7 @@ func dumpCheckConstraints(ctx context.Context, db *sql.DB, excludeSet map[string
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
+		  AND NOT ` + extensionMember("pg_class", "c.oid") + `
 		ORDER BY n.nspname, c.relname, con.conname
 	`
 
@@ -934,6 +1002,7 @@ func dumpForeignKeys(ctx context.Context, db *sql.DB, excludeSet map[string]bool
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
+		  AND NOT ` + extensionMember("pg_class", "c.oid") + `
 		ORDER BY n.nspname, c.relname, con.conname
 	`
 
@@ -976,6 +1045,7 @@ func dumpIndexes(ctx context.Context, db *sql.DB, excludeSet map[string]bool) ([
 		FROM pg_indexes
 		JOIN pg_namespace ON pg_namespace.nspname = pg_indexes.schemaname
 		JOIN pg_class ON pg_class.relname = pg_indexes.indexname AND pg_class.relnamespace = pg_namespace.oid
+		JOIN pg_index ON pg_index.indexrelid = pg_class.oid
 		WHERE pg_indexes.schemaname NOT IN ('pg_catalog', 'information_schema')
 		  AND pg_indexes.schemaname NOT LIKE 'pg_temp_%'
 		  AND pg_indexes.schemaname NOT LIKE 'pg_toast_temp_%'
@@ -983,6 +1053,7 @@ func dumpIndexes(ctx context.Context, db *sql.DB, excludeSet map[string]bool) ([
 		      SELECT conname FROM pg_constraint
 		      WHERE contype IN ('p', 'u', 'x')
 		  )
+		  AND NOT ` + extensionMember("pg_class", "pg_index.indrelid") + `
 		ORDER BY pg_indexes.schemaname, pg_indexes.tablename, pg_class.oid
 	`
 
@@ -1023,6 +1094,7 @@ func dumpTriggers(ctx context.Context, db *sql.DB, excludeSet map[string]bool) (
 		  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 		  AND n.nspname NOT LIKE 'pg_temp_%'
 		  AND n.nspname NOT LIKE 'pg_toast_temp_%'
+		  AND NOT ` + extensionMember("pg_class", "c.oid") + `
 		ORDER BY n.nspname, c.relname, t.tgname
 	`
 

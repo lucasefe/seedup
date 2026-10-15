@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -11,6 +12,9 @@ var (
 	databaseURL   string
 	migrationsDir string
 	verbose       bool
+
+	// Shared by the commands that flatten migrations
+	excludeExtensions string
 )
 
 func NewRootCmd() *cobra.Command {
@@ -71,4 +75,28 @@ func getSeedDir() string {
 		return dir
 	}
 	return "./seed"
+}
+
+// addExcludeExtensionsFlag registers --exclude-extensions on commands that
+// flatten migrations
+func addExcludeExtensionsFlag(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&excludeExtensions, "exclude-extensions", "",
+		"Comma-separated extensions to leave out of the flattened migration (e.g. aiven_extras)")
+}
+
+// getExcludeExtensions returns the parsed --exclude-extensions flag
+func getExcludeExtensions() []string {
+	return splitList(excludeExtensions)
+}
+
+// splitList parses a comma-separated flag value, dropping blanks
+func splitList(value string) []string {
+	var items []string
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
 }

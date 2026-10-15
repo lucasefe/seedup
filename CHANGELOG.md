@@ -6,7 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `--exclude-extensions` flag for `seed create` and `flatten` to leave extensions the target database cannot install (e.g. `aiven_extras` on Aiven) out of the flattened migration, along with any schema that exists only to hold them. Also available as `SeedCreateOptions.ExcludeExtensions` and `FlattenOptions.ExcludeExtensions`.
+
+### Fixed
+
+- Flatten no longer dumps types, views, tables, sequences, constraints, indexes, or triggers that belong to an extension. `CREATE EXTENSION` recreates those, so dumping them separately failed with "already exists". Functions were already handled.
+
 ### Changed
+
+- **Breaking:** `seedup.Flatten` takes a `FlattenOptions` argument.
+- **Breaking:** `pgconn.DumpSchema` takes a `DumpOptions` struct instead of an exclude-tables slice.
 
 - **Breaking:** `db setup` no longer runs migrations or applies seeds. Use the new workflow:
   1. `seedup db setup` - creates database infrastructure only

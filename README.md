@@ -149,9 +149,11 @@ seedup.SeedApply(ctx, dbURL, migrationsDir, seedDir)
 // seedDir is the seed set directory (e.g., "./seed/dev")
 // queryFile is the dump.sql file (e.g., "./seed/dev/dump.sql")
 seedup.SeedCreate(ctx, dbURL, seedDir, queryFile, seedup.SeedCreateOptions{
-    DryRun:     false,
-    Schemas:    []string{"public", "custom"},  // Specific schemas (default: ["public"])
-    AllSchemas: false,                          // Include all non-system schemas
+    DryRun:            false,
+    Schemas:           []string{"public", "custom"},  // Specific schemas (default: ["public"])
+    AllSchemas:        false,                          // Include all non-system schemas
+    MigrationsDir:     "./migrations",                 // Where flatten writes the initial migration
+    ExcludeExtensions: []string{"aiven_extras"},       // Extensions the target can't install
 })
 ```
 
@@ -179,7 +181,9 @@ seedup.MigrateUp(ctx, dbURL, "./migrations")
 
 ```go
 // Flatten all migrations into a single initial migration
-seedup.Flatten(ctx, dbURL, migrationsDir)
+seedup.Flatten(ctx, dbURL, migrationsDir, seedup.FlattenOptions{
+    ExcludeExtensions: []string{"aiven_extras"}, // Extensions the target can't install
+})
 
 // Validate migration timestamps (for CI)
 seedup.Check(ctx, migrationsDir, "main")
@@ -349,6 +353,9 @@ seedup seed create dev -d "$PROD_DATABASE_URL" --schemas public,custom
 # Include all non-system schemas
 seedup seed create dev -d "$PROD_DATABASE_URL" --all-schemas
 
+# Leave managed-service extensions out of the flattened migration
+seedup seed create dev -d "$PROD_DATABASE_URL" --exclude-extensions aiven_extras
+
 # Dry run (preview without modifying files)
 seedup seed create dev -d "$PROD_DATABASE_URL" --dry-run
 ```
@@ -365,7 +372,12 @@ Consolidate all migrations into a single initial migration. Useful for cleaning 
 
 ```bash
 seedup flatten -d "$PROD_DATABASE_URL"
+
+# Leave extensions the target can't install (and their private schemas) out of the dump
+seedup flatten -d "$PROD_DATABASE_URL" --exclude-extensions aiven_extras
 ```
+
+Objects that belong to an extension (its functions, types, views, tables) are never dumped: `CREATE EXTENSION` recreates them. `--exclude-extensions` additionally drops the `CREATE EXTENSION` statement itself, plus any schema that holds nothing but excluded extensions. Use it for extensions that only exist on a managed provider, such as `aiven_extras` on Aiven.
 
 ### check
 

@@ -14,12 +14,29 @@ import (
 
 // Flattener consolidates migrations into a single initial migration
 type Flattener struct {
-	db *sql.DB
+	db                *sql.DB
+	excludeExtensions []string
+}
+
+// FlattenOption configures a Flattener
+type FlattenOption func(*Flattener)
+
+// WithExcludeExtensions leaves the named extensions, and any schema that
+// exists only to hold them, out of the flattened migration. Use it for
+// extensions the source database has but the target cannot install.
+func WithExcludeExtensions(names []string) FlattenOption {
+	return func(f *Flattener) {
+		f.excludeExtensions = names
+	}
 }
 
 // NewFlattener creates a new Flattener with the given database connection
-func NewFlattener(db *sql.DB) *Flattener {
-	return &Flattener{db: db}
+func NewFlattener(db *sql.DB, opts ...FlattenOption) *Flattener {
+	f := &Flattener{db: db}
+	for _, opt := range opts {
+		opt(f)
+	}
+	return f
 }
 
 // Flatten consolidates all applied migrations into a single initial migration
@@ -110,12 +127,10 @@ func (f *Flattener) getAppliedVersions(ctx context.Context) ([]string, error) {
 
 func (f *Flattener) dumpSchema(ctx context.Context) (string, error) {
 	// Use our custom schema dumper, excluding goose tables
-	excludeTables := []string{
-		"goose_db_version",
-		"public.goose_db_version",
-	}
-
-	schema, err := pgconn.DumpSchema(ctx, f.db, excludeTables)
+	schema, err := pgconn.DumpSchema(ctx, f.db, pgconn.DumpOptions{
+		ExcludeTables:     []string{"goose_db_version", "public.goose_db_version"},
+		ExcludeExtensions: f.excludeExtensions,
+	})
 	if err != nil {
 		return "", err
 	}

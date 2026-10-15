@@ -149,7 +149,7 @@ func main() {
 	fmt.Println("8. Flattening migrations...")
 	fmt.Println("   (Consolidates all applied migrations into a single initial migration)")
 
-	if err := seedup.Flatten(ctx, dbURL, migrationsDir); err != nil {
+	if err := seedup.Flatten(ctx, dbURL, migrationsDir, seedup.FlattenOptions{}); err != nil {
 		log.Fatalf("Failed to flatten migrations: %v", err)
 	}
 
